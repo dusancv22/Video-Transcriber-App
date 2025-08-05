@@ -47,7 +47,7 @@ pip install -e .
 
 **Build executable:**
 ```bash
-pyinstaller --onefile --windowed Video_Transcriber_App.py
+pyinstaller --onefile --windowed run.py
 ```
 
 ## Architecture Overview
