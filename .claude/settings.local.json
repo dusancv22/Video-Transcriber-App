@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(git add:*)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)",
+      "Bash(git config:*)",
+      "Bash(git rm:*)",
+      "Bash(git push:*)",
+      "Bash(gh repo delete:*)"
+    ],
+    "deny": []
+  }
+}
