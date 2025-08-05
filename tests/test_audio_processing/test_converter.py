@@ -15,14 +15,14 @@ class TestAudioConverter:
         with open(test_video, "wb") as f:
             f.write(b"dummy video content")
         
-        success, output_path = self.converter.convert_video_to_audio(str(test_video))
+        success, output_files = self.converter.convert_video_to_audio(str(test_video))
         assert not success  # Should fail with dummy content
-        assert "Error converting video" in output_path
+        assert output_files == []  # Should return empty list on failure
         
     def test_invalid_video_path(self):
-        success, message = self.converter.convert_video_to_audio("nonexistent.mp4")
+        success, output_files = self.converter.convert_video_to_audio("nonexistent.mp4")
         assert not success
-        assert "Error converting video" in message
+        assert output_files == []  # Should return empty list on failure
 
     def teardown_method(self):
         # Cleanup any temporary files

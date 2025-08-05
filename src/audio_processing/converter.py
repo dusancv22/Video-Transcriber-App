@@ -12,7 +12,17 @@ class AudioConverter:
         """Initialize AudioConverter with output directory setup."""
         self.output_dir = Path("temp/audio")
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._last_split_metadata = []  # Store metadata from last split operation
         logger.info(f"AudioConverter initialized with output directory: {self.output_dir}")
+
+    def get_last_split_metadata(self) -> list:
+        """
+        Get metadata from the last split operation.
+        
+        Returns:
+            list: List of dictionaries containing segment metadata including overlap information
+        """
+        return self._last_split_metadata.copy()
 
     def check_file_size(self, file_path: str) -> float:
         """
@@ -28,13 +38,15 @@ class AudioConverter:
         logger.info(f"File size check: {file_path} - {size:.2f} MB")
         return size
 
-    def split_audio_if_needed(self, audio_path: str, max_size_mb: float = 25):
+    def split_audio_if_needed(self, audio_path: str, max_size_mb: float = 25, overlap_seconds: float = 2.5):
         """
-        Split audio file if larger than max_size_mb with enhanced progress reporting.
+        Split audio file if larger than max_size_mb with overlap between segments to prevent
+        transcription repetition issues.
         
         Args:
             audio_path: Path to the audio file
             max_size_mb: Maximum size in MB before splitting is required
+            overlap_seconds: Seconds of overlap between adjacent segments (default: 2.5)
             
         Returns:
             list[str]: List of paths to audio segments
@@ -49,6 +61,8 @@ class AudioConverter:
         try:
             if size <= max_size_mb:
                 print("File size within limits - no splitting needed")
+                # Reset metadata since no splitting occurred
+                self._last_split_metadata = []
                 return [audio_path]
                 
             # Load audio and prepare for splitting
@@ -60,15 +74,52 @@ class AudioConverter:
             segments = int(size / max_size_mb) + 1
             segment_duration = duration / segments
             print(f"Splitting into {segments} segments of {segment_duration:.2f} seconds each")
+            print(f"Using {overlap_seconds:.1f}s overlap between segments to prevent repetition")
             
             split_files = []
+            segment_metadata = []  # Track overlap information for potential deduplication
+            
             for i in range(segments):
-                start_time = i * segment_duration
-                end_time = min((i + 1) * segment_duration, duration)
+                # Calculate segment boundaries with overlap
+                if i == 0:
+                    # First segment: 0 to duration+overlap
+                    start_time = 0
+                    end_time = min(segment_duration + overlap_seconds, duration)
+                    has_start_overlap = False
+                    has_end_overlap = end_time < duration
+                elif i == segments - 1:
+                    # Last segment: start-overlap to duration
+                    start_time = max(0, i * segment_duration - overlap_seconds)
+                    end_time = duration
+                    has_start_overlap = start_time > 0
+                    has_end_overlap = False
+                else:
+                    # Middle segments: start-overlap to end+overlap
+                    start_time = max(0, i * segment_duration - overlap_seconds)
+                    end_time = min((i + 1) * segment_duration + overlap_seconds, duration)
+                    has_start_overlap = start_time > 0
+                    has_end_overlap = end_time < duration
                 
                 segment_path = Path(audio_path).parent / f"{Path(audio_path).stem}_part{i+1}.mp3"
                 print(f"\nCreating segment {i+1}/{segments}: {segment_path.name}")
                 print(f"Time range: {start_time:.2f}s to {end_time:.2f}s")
+                if has_start_overlap or has_end_overlap:
+                    overlap_info = []
+                    if has_start_overlap:
+                        overlap_info.append(f"start overlap: {overlap_seconds:.1f}s")
+                    if has_end_overlap:
+                        overlap_info.append(f"end overlap: {overlap_seconds:.1f}s")
+                    print(f"Overlap: {', '.join(overlap_info)}")
+                
+                # Store metadata for potential text deduplication
+                segment_metadata.append({
+                    'segment_index': i,
+                    'start_time': start_time,
+                    'end_time': end_time,
+                    'has_start_overlap': has_start_overlap,
+                    'has_end_overlap': has_end_overlap,
+                    'overlap_seconds': overlap_seconds if (has_start_overlap or has_end_overlap) else 0
+                })
                 
                 # Extract and save segment
                 segment = audio.subclip(start_time, end_time)
@@ -88,11 +139,17 @@ class AudioConverter:
             Path(audio_path).unlink()
             print("\nOriginal file removed after splitting")
             
-            # Log split information
+            # Log split information with overlap details
+            total_overlap_time = sum(meta['overlap_seconds'] for meta in segment_metadata)
             logger.info(
                 f"Split completed: {len(split_files)} segments created "
-                f"from {Path(audio_path).name}"
+                f"from {Path(audio_path).name} with {overlap_seconds:.1f}s overlap "
+                f"(total overlap time: {total_overlap_time:.1f}s)"
             )
+            
+            # Store metadata as a class attribute for potential use in text processing
+            # This allows downstream components to access overlap information
+            self._last_split_metadata = segment_metadata
             
             return split_files
             

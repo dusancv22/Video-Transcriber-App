@@ -33,7 +33,10 @@ class WhisperManager:
 
     def transcribe_audio(self, audio_path: str | Path) -> Dict[str, Any]:
         """
-        Transcribe a single MP3 audio file with forced English language setting.
+        Transcribe a single MP3 audio file with enhanced repetition prevention.
+        
+        Uses optimized Whisper parameters to prevent repetitive transcription output
+        and includes post-processing to detect and clean any remaining repetition.
         """
         if not self.model:
             raise RuntimeError("Model not loaded. Call load_model() first.")
@@ -57,13 +60,32 @@ class WhisperManager:
             file_size_mb = audio_path.stat().st_size / (1024 * 1024)
             print(f"File size: {file_size_mb:.2f} MB")
             
-            # Perform transcription with forced English
+            # Perform transcription with enhanced repetition prevention parameters
             result = self.model.transcribe(
                 str(audio_path),
                 language='en',  # Force English language
                 task='transcribe',  # Ensure we're in transcription mode
-                fp16=False  # Use FP32 for better accuracy
+                fp16=False,  # Use FP32 for better accuracy
+                temperature=0.0,  # Eliminate randomness for consistent output
+                compression_ratio_threshold=2.4,  # Detect repetitive/low-quality content
+                logprob_threshold=-1.0,  # Filter out low-confidence transcriptions
+                no_captions_threshold=0.6,  # Skip segments with no clear speech
+                condition_on_previous_text=False,  # Prevent context bleeding between segments
+                initial_prompt=None,  # Clear initial prompt to prevent bias
+                suppress_blank=True,  # Remove blank/empty segments
+                suppress_tokens=[-1],  # Suppress specific problematic tokens if needed
             )
+            
+            # Get the raw transcription text
+            raw_text = result['text']
+            
+            # Apply repetition detection and cleanup
+            cleaned_text = self._clean_transcription_text(raw_text)
+            
+            # Check if cleaning was applied
+            if cleaned_text != raw_text:
+                print(f"Repetition detected and cleaned in: {audio_path.name}")
+                logger.info(f"Repetition detected and cleaned in transcription of: {audio_path.name}")
             
             # Calculate duration and log completion
             duration = time.time() - start_time
@@ -75,7 +97,7 @@ class WhisperManager:
             logger.info(f"Detected language: {result['language']}")
             
             return {
-                'text': result['text'],
+                'text': cleaned_text,
                 'language': result['language'],
                 'duration': duration,
                 'timestamp': timestamp,
@@ -87,6 +109,128 @@ class WhisperManager:
             logger.error(error_msg)
             print(f"Error: {error_msg}")
             raise RuntimeError(error_msg)
+
+    def _detect_excessive_repetition(self, text: str, max_repetitions: int = 3) -> bool:
+        """
+        Detect if text contains excessive repetition of phrases.
+        
+        Args:
+            text: The text to analyze for repetition
+            max_repetitions: Maximum allowed repetitions before considering it excessive
+            
+        Returns:
+            True if excessive repetition is detected, False otherwise
+        """
+        words = text.split()
+        if len(words) < 6:  # Skip very short texts
+            return False
+        
+        # Check for repeated phrases at the beginning
+        for phrase_length in range(2, 6):  # Check 2-5 word phrases
+            if len(words) >= phrase_length * max_repetitions:
+                first_phrase = ' '.join(words[:phrase_length])
+                repetition_count = 1
+                
+                start_idx = phrase_length
+                while start_idx + phrase_length <= len(words):
+                    current_phrase = ' '.join(words[start_idx:start_idx + phrase_length])
+                    if current_phrase == first_phrase:
+                        repetition_count += 1
+                        start_idx += phrase_length
+                    else:
+                        break
+                
+                if repetition_count > max_repetitions:
+                    logger.debug(f"Excessive repetition detected: '{first_phrase}' repeated {repetition_count} times")
+                    return True
+        
+        return False
+
+    def _clean_repetitive_text(self, text: str, max_repetitions: int = 3) -> str:
+        """
+        Remove excessive repetition from text by keeping only the first occurrence of repeated phrases.
+        
+        Args:
+            text: The text to clean
+            max_repetitions: Maximum allowed repetitions
+            
+        Returns:
+            Cleaned text with excessive repetitions removed
+        """
+        if not self._detect_excessive_repetition(text, max_repetitions):
+            return text
+        
+        words = text.split()
+        cleaned_words = []
+        
+        # Find and remove repetitive patterns
+        i = 0
+        while i < len(words):
+            # Try different phrase lengths
+            found_repetition = False
+            
+            for phrase_length in range(2, min(6, len(words) - i + 1)):
+                if i + phrase_length > len(words):
+                    continue
+                    
+                current_phrase = words[i:i + phrase_length]
+                repetition_count = 1
+                
+                # Count consecutive repetitions
+                check_idx = i + phrase_length
+                while check_idx + phrase_length <= len(words):
+                    next_phrase = words[check_idx:check_idx + phrase_length]
+                    if next_phrase == current_phrase:
+                        repetition_count += 1
+                        check_idx += phrase_length
+                    else:
+                        break
+                
+                # If we found excessive repetition, keep only the first occurrence
+                if repetition_count > max_repetitions:
+                    cleaned_words.extend(current_phrase)
+                    i = check_idx
+                    found_repetition = True
+                    logger.debug(f"Cleaned repetitive phrase: '{' '.join(current_phrase)}' (was repeated {repetition_count} times)")
+                    break
+            
+            if not found_repetition:
+                cleaned_words.append(words[i])
+                i += 1
+        
+        return ' '.join(cleaned_words)
+
+    def _clean_transcription_text(self, text: str) -> str:
+        """
+        Apply comprehensive cleaning to transcription text.
+        
+        Args:
+            text: Raw transcription text
+            
+        Returns:
+            Cleaned and formatted text
+        """
+        if not text or not text.strip():
+            return text
+        
+        # Remove excessive repetition
+        cleaned_text = self._clean_repetitive_text(text)
+        
+        # Additional cleaning: remove excessive whitespace
+        cleaned_text = ' '.join(cleaned_text.split())
+        
+        # Remove common transcription artifacts
+        artifacts_to_remove = [
+            'Thank you.',  # Common ending artifact
+            'Thanks for watching.',
+            'Thank you for watching.',
+        ]
+        
+        for artifact in artifacts_to_remove:
+            if cleaned_text.strip().endswith(artifact):
+                cleaned_text = cleaned_text.strip()[:-len(artifact)].strip()
+        
+        return cleaned_text
 
     def get_model_info(self) -> Dict[str, Any]:
         """Return information about the loaded model."""

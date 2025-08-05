@@ -6,6 +6,7 @@ from datetime import datetime
 from src.audio_processing.converter import AudioConverter
 from src.transcription.whisper_manager import WhisperManager
 from src.post_processing.text_processor import TextProcessor
+from src.post_processing.combiner import TextCombiner
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ class TranscriptionPipeline:
         self.converter = AudioConverter()
         self.whisper_manager = WhisperManager(model_size="large")
         self.text_processor = TextProcessor()
+        self.text_combiner = TextCombiner()
         print("Pipeline initialized successfully")
         
     def process_video(
@@ -105,7 +107,21 @@ class TranscriptionPipeline:
             print("\nStep 3/4: Post-processing transcription...")
             processing_start = time.time()
             
-            combined_text = ' '.join(full_text)
+            # Get segment metadata for intelligent text combination
+            segment_metadata = self.converter.get_last_split_metadata()
+            
+            # Use intelligent text combination if we have multiple segments
+            if len(full_text) > 1:
+                print("Applying intelligent text combination with overlap removal...")
+                combined_text = self.text_combiner.combine_overlapping_segments(
+                    full_text, 
+                    segment_metadata,
+                    overlap_seconds=2.5
+                )
+            else:
+                print("Single segment - no deduplication needed")
+                combined_text = full_text[0] if full_text else ""
+            
             processed_text = self.text_processor.process_transcript(combined_text)
             
             processing_time = time.time() - processing_start
@@ -148,6 +164,7 @@ class TranscriptionPipeline:
                     'processing': processing_time,
                     'total': total_time
                 },
+                'deduplication_stats': self.text_combiner.get_deduplication_stats(),
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             
