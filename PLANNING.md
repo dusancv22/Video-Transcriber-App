@@ -264,7 +264,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 
 # Build executable
-pyinstaller --onefile --windowed Video_Transcriber_App.py
+pyinstaller --onefile --windowed run.py
 ```
 
 ## Constraints & Non-Goals

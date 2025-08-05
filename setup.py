@@ -13,7 +13,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'video_transcriber=Video_Transcriber_App:main',
+            'video_transcriber=run:main',
         ],
     },
     package_data={
