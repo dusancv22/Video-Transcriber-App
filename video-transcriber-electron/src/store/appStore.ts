@@ -11,6 +11,99 @@ import {
   WebSocketEvent,
   ProcessingSession
 } from '../types/api'
+
+// Processing options interface with strict typing
+export interface ProcessingOptions {
+  output_directory: string
+  whisper_model: 'base' | 'small' | 'medium' | 'large'
+  language: 'en' | 'auto'
+  output_format: 'txt' | 'srt' | 'vtt'
+}
+
+// Default settings configuration
+const DEFAULT_PROCESSING_OPTIONS: ProcessingOptions = {
+  output_directory: '', // Will be set dynamically to user's Documents or Downloads folder
+  whisper_model: 'large',
+  language: 'en',
+  output_format: 'txt'
+}
+
+// Settings validation functions
+const isValidWhisperModel = (value: string): value is ProcessingOptions['whisper_model'] => {
+  return ['base', 'small', 'medium', 'large'].includes(value)
+}
+
+const isValidLanguage = (value: string): value is ProcessingOptions['language'] => {
+  return ['en', 'auto'].includes(value)
+}
+
+const isValidOutputFormat = (value: string): value is ProcessingOptions['output_format'] => {
+  return ['txt', 'srt', 'vtt'].includes(value)
+}
+
+const isValidDirectory = (path: string): boolean => {
+  // Basic path validation - not empty and reasonable length
+  return typeof path === 'string' && path.length > 0 && path.length < 500
+}
+
+// Settings validation function
+const validateProcessingOptions = (options: any): ProcessingOptions => {
+  const validated: ProcessingOptions = { ...DEFAULT_PROCESSING_OPTIONS }
+  
+  if (options && typeof options === 'object') {
+    // Validate output_directory
+    if (typeof options.output_directory === 'string' && isValidDirectory(options.output_directory)) {
+      validated.output_directory = options.output_directory
+    }
+    
+    // Validate whisper_model
+    if (isValidWhisperModel(options.whisper_model)) {
+      validated.whisper_model = options.whisper_model
+    }
+    
+    // Validate language
+    if (isValidLanguage(options.language)) {
+      validated.language = options.language
+    }
+    
+    // Validate output_format
+    if (isValidOutputFormat(options.output_format)) {
+      validated.output_format = options.output_format
+    }
+  }
+  
+  return validated
+}
+
+// LocalStorage operations with error handling
+const SETTINGS_STORAGE_KEY = 'video-transcriber-settings'
+
+const loadSettingsFromLocalStorage = (): ProcessingOptions => {
+  try {
+    const stored = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      return validateProcessingOptions(parsed)
+    }
+  } catch (error) {
+    console.warn('Failed to load settings from localStorage:', error)
+  }
+  return { ...DEFAULT_PROCESSING_OPTIONS }
+}
+
+const saveSettingsToLocalStorage = (options: ProcessingOptions): void => {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(options))
+  } catch (error) {
+    console.error('Failed to save settings to localStorage:', error)
+  }
+}
+
+// Initialize default output directory
+const getDefaultOutputDirectory = (): string => {
+  // Fallback to a reasonable default for cross-platform compatibility
+  return 'C:/Output/Transcripts'
+}
 import { VideoTranscriberAPI } from '../services/api'
 import { websocketService, WebSocketConnectionState } from '../services/websocket'
 
@@ -43,13 +136,9 @@ export interface AppState {
   dragOver: boolean
   settingsOpen: boolean
   
-  // Processing options
-  processingOptions: {
-    output_directory: string
-    whisper_model: string
-    language: string
-    output_format: string
-  }
+  // Processing options with proper typing
+  processingOptions: ProcessingOptions
+  isSettingsLoaded: boolean
 }
 
 export interface AppActions {
@@ -79,7 +168,11 @@ export interface AppActions {
   setSettingsOpen: (open: boolean) => void
   
   // Processing options actions
-  setProcessingOptions: (options: Partial<AppState['processingOptions']>) => void
+  setProcessingOptions: (options: ProcessingOptions) => void
+  updateProcessingOption: <K extends keyof ProcessingOptions>(key: K, value: ProcessingOptions[K]) => void
+  resetProcessingOptions: () => void
+  loadSettingsFromStorage: () => void
+  saveSettingsToStorage: () => void
   
   // API actions
   fetchAppStatus: () => Promise<void>
@@ -98,6 +191,15 @@ export interface AppActions {
 }
 
 type AppStore = AppState & AppActions
+
+// Initialize processing options with default output directory
+const initializeProcessingOptions = (): ProcessingOptions => {
+  const options = { ...DEFAULT_PROCESSING_OPTIONS }
+  if (!options.output_directory) {
+    options.output_directory = getDefaultOutputDirectory()
+  }
+  return options
+}
 
 const initialState: AppState = {
   // Application status
@@ -128,20 +230,17 @@ const initialState: AppState = {
   dragOver: false,
   settingsOpen: false,
   
-  // Processing options
-  processingOptions: {
-    output_directory: 'C:/Output/Transcripts', // Default output directory
-    whisper_model: 'large',
-    language: 'en',
-    output_format: 'txt'
-  }
+  // Processing options with proper initialization
+  processingOptions: initializeProcessingOptions(),
+  isSettingsLoaded: false
 }
 
 export const useAppStore = create<AppStore>()(
   devtools(
     subscribeWithSelector(
-      (set, get) => ({
-        ...initialState,
+      (set, get) => {
+        const store = {
+          ...initialState,
 
         // Application status actions
         setAppStatus: (status) => set({ appStatus: status }),
@@ -239,9 +338,49 @@ export const useAppStore = create<AppStore>()(
         setSettingsOpen: (open) => set({ settingsOpen: open }),
 
         // Processing options actions
-        setProcessingOptions: (options) => set((state) => ({
-          processingOptions: { ...state.processingOptions, ...options }
-        })),
+        setProcessingOptions: (options) => {
+          set({ processingOptions: options })
+          saveSettingsToLocalStorage(options)
+        },
+        
+        updateProcessingOption: (key, value) => {
+          const currentOptions = get().processingOptions
+          const updatedOptions = { ...currentOptions, [key]: value }
+          set({ processingOptions: updatedOptions })
+          saveSettingsToLocalStorage(updatedOptions)
+        },
+        
+        resetProcessingOptions: () => {
+          const defaultOptions = initializeProcessingOptions()
+          set({ processingOptions: defaultOptions })
+          saveSettingsToLocalStorage(defaultOptions)
+        },
+        
+        loadSettingsFromStorage: () => {
+          try {
+            const loadedOptions = loadSettingsFromLocalStorage()
+            // Ensure output directory is set
+            if (!loadedOptions.output_directory) {
+              loadedOptions.output_directory = getDefaultOutputDirectory()
+            }
+            set({ 
+              processingOptions: loadedOptions,
+              isSettingsLoaded: true 
+            })
+          } catch (error) {
+            console.error('Failed to load settings:', error)
+            const defaultOptions = initializeProcessingOptions()
+            set({ 
+              processingOptions: defaultOptions,
+              isSettingsLoaded: true 
+            })
+          }
+        },
+        
+        saveSettingsToStorage: () => {
+          const options = get().processingOptions
+          saveSettingsToLocalStorage(options)
+        },
 
         // API actions
         fetchAppStatus: async () => {
@@ -388,7 +527,15 @@ export const useAppStore = create<AppStore>()(
           websocketService.disconnect()
           set({ wsConnectionState: 'disconnected' })
         }
-      })
+        }
+        
+        // Auto-load settings when store is created
+        setTimeout(() => {
+          store.loadSettingsFromStorage()
+        }, 0)
+        
+        return store
+      }
     ),
     {
       name: 'video-transcriber-store'
@@ -402,3 +549,24 @@ export const useProcessingStatus = () => useAppStore(state => state.processingSt
 export const useWebSocketState = () => useAppStore(state => state.wsConnectionState)
 export const useAppError = () => useAppStore(state => state.error)
 export const useIsLoading = () => useAppStore(state => state.isLoading)
+
+// Settings-specific selector hooks
+export const useProcessingOptions = () => useAppStore(state => state.processingOptions)
+export const useIsSettingsLoaded = () => useAppStore(state => state.isSettingsLoaded)
+export const useOutputDirectory = () => useAppStore(state => state.processingOptions.output_directory)
+export const useWhisperModel = () => useAppStore(state => state.processingOptions.whisper_model)
+export const useLanguage = () => useAppStore(state => state.processingOptions.language)
+export const useOutputFormat = () => useAppStore(state => state.processingOptions.output_format)
+
+// Settings action hooks for convenience
+export const useSettingsActions = () => useAppStore(state => ({
+  setProcessingOptions: state.setProcessingOptions,
+  updateProcessingOption: state.updateProcessingOption,
+  resetProcessingOptions: state.resetProcessingOptions,
+  loadSettingsFromStorage: state.loadSettingsFromStorage,
+  saveSettingsToStorage: state.saveSettingsToStorage
+}))
+
+// Export types and defaults for external use
+export { DEFAULT_PROCESSING_OPTIONS }
+export type { ProcessingOptions }
