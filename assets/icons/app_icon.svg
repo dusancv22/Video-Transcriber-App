@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background with gradient -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3B82F6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1D4ED8;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background rounded rectangle -->
+  <rect x="0" y="0" width="256" height="256" rx="48" ry="48" fill="url(#bgGradient)" />
+  
+  <!-- Video play button (left side) -->
+  <path d="M70 96 L70 160 L120 128 Z" fill="white" opacity="0.9" />
+  
+  <!-- Arrow transition (center) -->
+  <path d="M140 120 L165 128 L140 136 M135 128 L170 128" stroke="white" stroke-width="4" fill="none" opacity="0.8" />
+  
+  <!-- Text lines (right side) -->
+  <rect x="180" y="108" width="50" height="6" rx="3" fill="white" opacity="0.9" />
+  <rect x="180" y="122" width="40" height="6" rx="3" fill="white" opacity="0.9" />
+  <rect x="180" y="136" width="45" height="6" rx="3" fill="white" opacity="0.9" />
+  <rect x="180" y="150" width="35" height="6" rx="3" fill="white" opacity="0.9" />
+</svg>

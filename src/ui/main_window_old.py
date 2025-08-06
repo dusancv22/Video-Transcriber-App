@@ -1,12 +1,8 @@
-"""
-Flat, modern main window implementation for Video Transcriber App
-This replaces the card-based design with a clean, efficient layout
-"""
-
-from PyQt6.QtWidgets import (
+﻿from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QLabel, QFileDialog, QProgressBar,
-    QListWidget, QListWidgetItem, QMessageBox
+    QListWidget, QListWidgetItem, QMessageBox, QFrame,
+    QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt, QTimer, QThread
 from PyQt6.QtGui import QIcon, QFont
@@ -25,7 +21,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Video Transcriber")
-        self.setMinimumSize(800, 500)  # More compact size
+        self.setMinimumSize(900, 650)  # Reduced height for more compact design
         
         # Set application icon
         icon_path = Path(__file__).parent.parent.parent / "assets" / "icons" / "app_icon.ico"
@@ -51,162 +47,220 @@ class MainWindow(QMainWindow):
         logger.info("MainWindow initialized")
         
     def init_ui(self):
-        """Initialize flat, modern UI layout"""
-        # Create central widget
+        """Initialize the user interface with modern Material Design."""
+        # Create central widget with modern styling
         central_widget = QWidget()
+        central_widget.setObjectName("centralWidget")
         self.setCentralWidget(central_widget)
         
-        # Main layout - minimal spacing
-        layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        # Main layout with compact spacing
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(12)
         
-        print("Initializing Video Transcriber interface...")
-        
-        # Header with title
-        header_layout = QHBoxLayout()
+        # Title section
         title_label = QLabel("Video Transcriber")
+        title_label.setObjectName("appTitle")
         title_label.setStyleSheet(f"""
-            font-size: 16px;
+            font-size: 22px;
             font-weight: 600;
             color: {ModernTheme.COLORS['text_primary']};
-            margin: 4px;
+            margin-bottom: 4px;
         """)
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
-        layout.addLayout(header_layout)
+        main_layout.addWidget(title_label)
         
-        # Toolbar - flat button layout
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(6)
+        # Subtitle
+        subtitle_label = QLabel("Transform videos into accurate text transcripts")
+        subtitle_label.setStyleSheet(f"""
+            font-size: 13px;
+            color: {ModernTheme.COLORS['text_secondary']};
+            margin-bottom: 12px;
+        """)
+        main_layout.addWidget(subtitle_label)
         
-        # Clean buttons without icons
-        self.add_files_btn = QPushButton("Add Files")
+        # Status message for initialization
+        print("Initializing Video Transcriber interface...")
+        
+        # Create controls card
+        controls_card = QFrame()
+        controls_card.setObjectName("controlsCard")
+        controls_card.setStyleSheet(f"""
+            QFrame#controlsCard {{
+                background-color: {ModernTheme.COLORS['surface']};
+                border: 1px solid {ModernTheme.COLORS['outline']};
+                border-radius: {ModernTheme.RADIUS['lg']};
+                padding: 16px;
+            }}
+        """)
+        
+        # Add shadow effect to card
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setXOffset(0)
+        shadow.setYOffset(4)
+        shadow.setColor(Qt.GlobalColor.gray)
+        controls_card.setGraphicsEffect(shadow)
+        
+        controls_layout = QHBoxLayout(controls_card)
+        controls_layout.setSpacing(8)
+        
+        # Add Files button with icon
+        self.add_files_btn = QPushButton("📁 Add Files")
         self.add_files_btn.clicked.connect(self.add_files)
-        toolbar.addWidget(self.add_files_btn)
-        
-        self.add_dir_btn = QPushButton("Add Directory") 
+        self.add_files_btn.setObjectName("primaryButton")
+        controls_layout.addWidget(self.add_files_btn)
+
+        # Add Directory button with icon
+        self.add_dir_btn = QPushButton("📂 Add Directory")
         self.add_dir_btn.clicked.connect(self.add_directory)
-        toolbar.addWidget(self.add_dir_btn)
+        self.add_dir_btn.setObjectName("primaryButton")
+        controls_layout.addWidget(self.add_dir_btn)
         
-        self.output_dir_btn = QPushButton("Output Directory")
+        # Output Directory button with icon
+        self.output_dir_btn = QPushButton("💾 Output Directory")
         self.output_dir_btn.clicked.connect(self.select_output_dir)
         self.output_dir_btn.setProperty("class", "secondary")
-        toolbar.addWidget(self.output_dir_btn)
-        
-        self.clear_btn = QPushButton("Clear Queue")
-        self.clear_btn.clicked.connect(self.clear_queue) 
+        controls_layout.addWidget(self.output_dir_btn)
+
+        # Clear Queue button with icon
+        self.clear_btn = QPushButton("🗑️ Clear Queue")
+        self.clear_btn.clicked.connect(self.clear_queue)
         self.clear_btn.setProperty("class", "danger")
-        toolbar.addWidget(self.clear_btn)
+        controls_layout.addWidget(self.clear_btn)
         
-        toolbar.addStretch()
-        layout.addLayout(toolbar)
+        controls_layout.addStretch()
+        main_layout.addWidget(controls_card)
         
-        # Status line
-        self.output_dir_label = QLabel("Output Directory: Not Selected")
-        self.output_dir_label.setStyleSheet(f"""
-            color: {ModernTheme.COLORS['text_secondary']};
-            font-size: 12px;
-            padding: 4px 8px;
-            border: 1px solid {ModernTheme.COLORS['outline']};
-            border-radius: {ModernTheme.RADIUS['sm']};
-            background-color: {ModernTheme.COLORS['surface_variant']};
+        # Output directory info card
+        output_card = QFrame()
+        output_card.setStyleSheet(f"""
+            background-color: {ModernTheme.COLORS['primary_light']};
+            border: 1px solid {ModernTheme.COLORS['primary']};
+            border-radius: {ModernTheme.RADIUS['md']};
+            padding: 8px 12px;
         """)
-        layout.addWidget(self.output_dir_label)
+        output_layout = QHBoxLayout(output_card)
         
-        # Progress section (initially hidden)
-        self.progress_group = QWidget()
+        self.output_dir_label = QLabel("📍 Output Directory: Not Selected")
+        self.output_dir_label.setStyleSheet(f"""
+            color: {ModernTheme.COLORS['primary']};
+            font-weight: 500;
+        """)
+        output_layout.addWidget(self.output_dir_label)
+        output_layout.addStretch()
+        
+        main_layout.addWidget(output_card)
+        
+        # Progress section card
+        self.progress_group = QFrame()
+        self.progress_group.setStyleSheet(f"""
+            QFrame {{
+                background-color: {ModernTheme.COLORS['surface']};
+                border: 1px solid {ModernTheme.COLORS['outline']};
+                border-radius: {ModernTheme.RADIUS['lg']};
+                padding: 16px;
+            }}
+        """)
         progress_layout = QVBoxLayout(self.progress_group)
-        progress_layout.setContentsMargins(0, 4, 0, 4)
-        progress_layout.setSpacing(4)
+        progress_layout.setSpacing(8)
         
-        # Progress info
+        # Add progress info layout
         progress_info_layout = QHBoxLayout()
+        
         self.current_file_label = QLabel("")
-        self.current_file_label.setStyleSheet("font-weight: 500;")
+        self.current_file_label.setStyleSheet("font-weight: bold;")
         progress_info_layout.addWidget(self.current_file_label)
         
         self.time_estimate_label = QLabel("")
-        self.time_estimate_label.setStyleSheet(f"color: {ModernTheme.COLORS['text_tertiary']};")
+        self.time_estimate_label.setStyleSheet("color: #6b7280;")
         progress_info_layout.addWidget(self.time_estimate_label)
+        
         progress_layout.addLayout(progress_info_layout)
         
-        # Progress bar
+        # Modern progress bar with gradient
         self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(6)
         self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(10)
         progress_layout.addWidget(self.progress_bar)
         
-        # Status label
+        # Enhanced status label
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet(f"color: {ModernTheme.COLORS['text_tertiary']}; font-size: 11px;")
+        self.status_label.setProperty("class", "caption")
         progress_layout.addWidget(self.status_label)
         
         self.progress_group.hide()
-        layout.addWidget(self.progress_group)
+        main_layout.addWidget(self.progress_group)
         
-        # Queue section
-        queue_header = QHBoxLayout()
-        queue_label = QLabel("Queue")
+        # Queue section with modern card
+        queue_card = QFrame()
+        queue_card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {ModernTheme.COLORS['surface']};
+                border: 1px solid {ModernTheme.COLORS['outline']};
+                border-radius: {ModernTheme.RADIUS['lg']};
+                padding: 16px;
+            }}
+        """)
+        queue_layout = QVBoxLayout(queue_card)
+        
+        # Queue header
+        queue_header_layout = QHBoxLayout()
+        queue_label = QLabel("📋 Queue")
         queue_label.setStyleSheet(f"""
-            font-size: 13px;
+            font-size: 18px;
             font-weight: 600;
             color: {ModernTheme.COLORS['text_primary']};
         """)
-        queue_header.addWidget(queue_label)
+        queue_header_layout.addWidget(queue_label)
         
-        # Pause button
-        self.pause_btn = QPushButton("Pause")
+        # Pause/Resume button with modern styling
+        self.pause_btn = QPushButton("⏸️ Pause")
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.pause_btn.setEnabled(False)
         self.pause_btn.setProperty("class", "warning")
-        queue_header.addWidget(self.pause_btn)
-        queue_header.addStretch()
-        layout.addLayout(queue_header)
+        queue_header_layout.addWidget(self.pause_btn)
+        queue_header_layout.addStretch()
         
-        # Queue list
+        queue_layout.addLayout(queue_header_layout)
+        
+        # Modern queue list
         self.queue_list = QListWidget()
-        self.queue_list.setMinimumHeight(150)
-        self.queue_list.setStyleSheet(f"""
-            QListWidget {{
-                border: 1px solid {ModernTheme.COLORS['outline']};
-                background-color: {ModernTheme.COLORS['surface']};
-                border-radius: {ModernTheme.RADIUS['sm']};
-            }}
-            QListWidget::item {{
-                padding: 6px;
-                border-bottom: 1px solid {ModernTheme.COLORS['outline']};
-            }}
-            QListWidget::item:last {{
-                border-bottom: none;
-            }}
-        """)
-        layout.addWidget(self.queue_list)
+        self.queue_list.setMinimumHeight(200)
+        queue_layout.addWidget(self.queue_list)
         
-        # Start button
-        self.start_btn = QPushButton("Start Processing")
+        main_layout.addWidget(queue_card)
+        
+        # Start button with modern styling
+        self.start_btn = QPushButton("▶️ Start Processing")
         self.start_btn.clicked.connect(self.start_processing)
         self.start_btn.setEnabled(False)
         self.start_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {ModernTheme.COLORS['success']};
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {ModernTheme.COLORS['success']},
+                    stop:1 #059669
+                );
                 color: white;
-                padding: 8px;
-                border: none;
-                border-radius: {ModernTheme.RADIUS['sm']};
-                font-weight: 500;
-                font-size: 13px;
-                min-height: 30px;
+                padding: 12px;
+                border-radius: {ModernTheme.RADIUS['md']};
+                font-weight: 600;
+                font-size: 15px;
+                min-height: 40px;
             }}
             QPushButton:hover {{
-                background-color: #059669;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #059669,
+                    stop:1 {ModernTheme.COLORS['success']}
+                );
             }}
             QPushButton:disabled {{
                 background-color: {ModernTheme.COLORS['outline']};
                 color: {ModernTheme.COLORS['text_disabled']};
             }}
         """)
-        layout.addWidget(self.start_btn)
+        main_layout.addWidget(self.start_btn)
 
         # Timer for updating time estimates
         self.update_timer = QTimer()
@@ -216,7 +270,6 @@ class MainWindow(QMainWindow):
         print("Interface initialization complete")
         logger.info("UI initialization completed")
 
-    # All other methods remain the same from the original file
     def closeEvent(self, event):
         """Handle application closure with proper thread cleanup."""
         logger.info("Application closing - starting cleanup")
@@ -572,7 +625,7 @@ class MainWindow(QMainWindow):
         
         if directory:
             self.output_directory = Path(directory)
-            self.output_dir_label.setText(f"Output Directory: {directory}")
+            self.output_dir_label.setText(f"📍 Output Directory: {directory}")
             print(f"\nOutput directory set to: {directory}")
             self.update_start_button()
 
@@ -629,7 +682,7 @@ class MainWindow(QMainWindow):
         if self.worker.is_paused:
             # Resume processing
             self.worker.resume()
-            self.pause_btn.setText("Pause")
+            self.pause_btn.setText("⏸️ Pause")
             self.pause_btn.setProperty("class", "warning")
             self.pause_btn.setStyle(self.pause_btn.style())  # Force style refresh
             self.status_label.setText("Processing resumed")
@@ -637,7 +690,7 @@ class MainWindow(QMainWindow):
         else:
             # Pause processing
             self.worker.pause()
-            self.pause_btn.setText("Resume")
+            self.pause_btn.setText("▶️ Resume")
             self.pause_btn.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {ModernTheme.COLORS['success']};
