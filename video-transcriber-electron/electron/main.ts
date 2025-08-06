@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, dialog, globalShortcut } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import { platform } from 'os'
@@ -84,10 +84,6 @@ class ElectronApp {
     // Show window when ready to prevent visual flash
     this.mainWindow.once('ready-to-show', () => {
       this.mainWindow?.show()
-      
-      if (isDev) {
-        this.mainWindow?.webContents.openDevTools()
-      }
     })
 
     // Load the remote URL for development or the local html file for production
@@ -107,6 +103,22 @@ class ElectronApp {
       if (url !== this.mainWindow?.webContents.getURL()) {
         event.preventDefault()
         shell.openExternal(url)
+      }
+    })
+
+    // Register F12 shortcut to toggle DevTools
+    this.registerDevToolsShortcut()
+  }
+
+  private registerDevToolsShortcut(): void {
+    // Register F12 globally to toggle DevTools
+    globalShortcut.register('F12', () => {
+      if (this.mainWindow && this.mainWindow.webContents) {
+        if (this.mainWindow.webContents.isDevToolsOpened()) {
+          this.mainWindow.webContents.closeDevTools()
+        } else {
+          this.mainWindow.webContents.openDevTools()
+        }
       }
     })
   }
@@ -154,6 +166,9 @@ class ElectronApp {
   }
 
   private cleanup(): void {
+    // Unregister all global shortcuts
+    globalShortcut.unregisterAll()
+    
     if (pythonProcess) {
       console.log('Terminating Python backend process...')
       
