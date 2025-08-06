@@ -27,10 +27,14 @@ import FileDropZone from './FileDropZone'
 import QueuePanel from './QueuePanel'
 import ProgressSection from './ProgressSection'
 import StatusBar from './StatusBar'
+import SettingsDialog from './SettingsDialog'
 import { useAppStore } from '../store/appStore'
 
 const MainWindow: React.FC = () => {
   const theme = useTheme()
+  
+  // Local state for settings dialog
+  const [settingsOpen, setSettingsOpen] = useState(false)
   
   // Get state and actions from store
   const {
@@ -121,6 +125,14 @@ const MainWindow: React.FC = () => {
     }
   }
 
+  const handleOpenSettings = () => {
+    setSettingsOpen(true)
+  }
+
+  const handleCloseSettings = () => {
+    setSettingsOpen(false)
+  }
+
   // Clear error after 5 seconds
   useEffect(() => {
     if (error) {
@@ -130,6 +142,19 @@ const MainWindow: React.FC = () => {
       return () => clearTimeout(timer)
     }
   }, [error, setError])
+
+  // Keyboard shortcut for settings (Ctrl+, or Cmd+,)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === ',') {
+        event.preventDefault()
+        handleOpenSettings()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -225,6 +250,7 @@ const MainWindow: React.FC = () => {
             </IconButton>
             
             <IconButton
+              onClick={handleOpenSettings}
               sx={{ 
                 color: 'white',
                 '&:hover': {
@@ -232,6 +258,8 @@ const MainWindow: React.FC = () => {
                 }
               }}
               size="small"
+              aria-label="Open settings"
+              title="Settings (Ctrl+,)"
             >
               <Settings />
             </IconButton>
@@ -307,6 +335,12 @@ const MainWindow: React.FC = () => {
 
       {/* Status Bar */}
       <StatusBar />
+      
+      {/* Settings Dialog */}
+      <SettingsDialog 
+        open={settingsOpen} 
+        onClose={handleCloseSettings}
+      />
     </Box>
   )
 }

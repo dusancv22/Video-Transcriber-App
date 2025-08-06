@@ -9,16 +9,28 @@ import {
   ListItemIcon,
   ListItemText,
   alpha,
-  useTheme
+  useTheme,
+  Snackbar,
+  Alert,
+  CircularProgress,
+  Backdrop
 } from '@mui/material'
 import {
   CloudUpload,
   VideoFile,
-  FolderOpen
+  FolderOpen,
+  CheckCircle,
+  Error as ErrorIcon
 } from '@mui/icons-material'
 
 interface FileDropZoneProps {
   onFilesAdded?: (files: File[]) => void
+}
+
+interface NotificationState {
+  open: boolean
+  message: string
+  severity: 'success' | 'error' | 'warning' | 'info'
 }
 
 const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAdded }) => {
@@ -26,6 +38,26 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAdded }) => {
   const theme = useTheme()
   const [isDragOver, setIsDragOver] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [notification, setNotification] = useState<NotificationState>({
+    open: false,
+    message: '',
+    severity: 'info'
+  })
+
+  // Utility function to show notifications
+  const showNotification = useCallback((message: string, severity: 'success' | 'error' | 'warning' | 'info' = 'info') => {
+    setNotification({
+      open: true,
+      message,
+      severity
+    })
+  }, [])
+
+  // Utility function to close notifications
+  const closeNotification = useCallback(() => {
+    setNotification(prev => ({ ...prev, open: false }))
+  }, [])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -41,48 +73,136 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAdded }) => {
     e.preventDefault()
     setIsDragOver(false)
 
-    const files = Array.from(e.dataTransfer.files).filter(file => 
-      file.type.startsWith('video/') || 
-      ['.mp4', '.avi', '.mkv', '.mov'].some(ext => 
-        file.name.toLowerCase().endsWith(ext)
-      )
-    )
-
-    // Convert File objects to file paths for API
-    const filePaths = files.map(file => (file as any).path || file.name)
-    
-    setSelectedFiles(prev => [...prev, ...files])
-    onFilesAdded?.(files)
-    
-    // Add files to queue via API
-    try {
-      await addFiles(filePaths)
-    } catch (error) {
-      console.error('Failed to add files to queue:', error)
+    if (isLoading) {
+      showNotification('Please wait for the current operation to complete', 'warning')
+      return
     }
-  }, [onFilesAdded, addFiles])
+
+    try {
+      setIsLoading(true)
+      console.log('Processing dropped files...')
+
+      const droppedFiles = Array.from(e.dataTransfer.files)
+      const validFiles = droppedFiles.filter(file => 
+        file.type.startsWith('video/') || 
+        ['.mp4', '.avi', '.mkv', '.mov'].some(ext => 
+          file.name.toLowerCase().endsWith(ext)
+        )
+      )
+
+      if (validFiles.length === 0) {
+        showNotification('No valid video files found. Please drop MP4, AVI, MKV, or MOV files.', 'warning')
+        return
+      }
+
+      if (validFiles.length < droppedFiles.length) {
+        const skippedCount = droppedFiles.length - validFiles.length
+        showNotification(`${skippedCount} file(s) skipped - only video files are supported`, 'warning')
+      }
+
+      // Convert File objects to file paths for API
+      const filePaths = validFiles.map(file => (file as any).path || file.name)
+      
+      setSelectedFiles(prev => [...prev, ...validFiles])
+      onFilesAdded?.(validFiles)
+      
+      console.log(`Adding ${validFiles.length} files to queue...`)
+      await addFiles(filePaths)
+      
+      showNotification(`Successfully added ${validFiles.length} file(s) to the queue`, 'success')
+      console.log('Files successfully added to queue')
+
+    } catch (error) {
+      console.error('Failed to add dropped files to queue:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      showNotification(`Failed to add files: ${errorMessage}`, 'error')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [onFilesAdded, addFiles, isLoading, showNotification])
 
   const handleFileSelect = useCallback(async () => {
-    if (window.electronAPI?.dialog) {
+    console.log('Browse Files clicked - checking Electron API availability...')
+    
+    if (isLoading) {
+      showNotification('Please wait for the current operation to complete', 'warning')
+      return
+    }
+
+    if (!window.electronAPI) {
+      console.error('Electron API not available!')
+      showNotification('Desktop features not available. Please restart the application.', 'error')
+      return
+    }
+
+    if (!window.electronAPI.dialog) {
+      console.error('Dialog API not available!')
+      showNotification('File dialog not available. Please check your installation.', 'error')
+      return
+    }
+
+    try {
+      setIsLoading(true)
+      console.log('Opening file dialog...')
+      
       const result = await window.electronAPI.dialog.showOpenDialog({
         properties: ['openFile', 'multiSelections'],
         filters: [
-          {
-            name: 'Video Files',
-            extensions: ['mp4', 'avi', 'mkv', 'mov']
-          }
-        ]
+          { name: 'Video Files', extensions: ['mp4', 'avi', 'mkv', 'mov'] },
+          { name: 'All Files', extensions: ['*'] }
+        ],
+        title: 'Select Video Files to Transcribe'
       })
 
-      if (!result.canceled && result.filePaths.length > 0) {
-        try {
-          await addFiles(result.filePaths)
-        } catch (error) {
-          console.error('Failed to add selected files:', error)
-        }
+      console.log('File dialog result:', { canceled: result.canceled, fileCount: result.filePaths?.length || 0 })
+
+      if (result.canceled) {
+        console.log('File selection was canceled by user')
+        showNotification('File selection canceled', 'info')
+        return
       }
+
+      if (!result.filePaths || result.filePaths.length === 0) {
+        console.log('No files were selected')
+        showNotification('No files were selected', 'warning')
+        return
+      }
+
+      // Validate file extensions
+      const validFiles = result.filePaths.filter(filePath => {
+        const isValid = ['.mp4', '.avi', '.mkv', '.mov'].some(ext => 
+          filePath.toLowerCase().endsWith(ext)
+        )
+        if (!isValid) {
+          console.warn(`Invalid file type: ${filePath}`)
+        }
+        return isValid
+      })
+
+      if (validFiles.length === 0) {
+        showNotification('No valid video files selected. Please select MP4, AVI, MKV, or MOV files.', 'warning')
+        return
+      }
+
+      if (validFiles.length < result.filePaths.length) {
+        const skippedCount = result.filePaths.length - validFiles.length
+        showNotification(`${skippedCount} file(s) skipped - only video files are supported`, 'warning')
+      }
+
+      console.log(`Adding ${validFiles.length} selected files to queue...`)
+      await addFiles(validFiles)
+      
+      showNotification(`Successfully added ${validFiles.length} file(s) to the queue`, 'success')
+      console.log('Selected files successfully added to queue')
+
+    } catch (error) {
+      console.error('Error during file selection:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      showNotification(`Failed to open file browser: ${errorMessage}`, 'error')
+    } finally {
+      setIsLoading(false)
     }
-  }, [])
+  }, [addFiles, isLoading, showNotification])
 
   const supportedFormats = ['MP4', 'AVI', 'MKV', 'MOV']
 
@@ -95,14 +215,14 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAdded }) => {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         sx={{
-          border: `2px dashed ${isDragOver ? theme.palette.primary.main : theme.palette.divider}`,
+          border: `2px dashed ${isDragOver && !isLoading ? theme.palette.primary.main : theme.palette.divider}`,
           borderRadius: 2,
           p: 4,
           textAlign: 'center',
-          backgroundColor: isDragOver 
+          backgroundColor: isDragOver && !isLoading
             ? alpha(theme.palette.primary.main, 0.05)
             : alpha(theme.palette.background.default, 0.5),
-          cursor: 'pointer',
+          cursor: isLoading ? 'not-allowed' : 'pointer',
           transition: 'all 0.2s ease-in-out',
           minHeight: 200,
           display: 'flex',
@@ -110,9 +230,13 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAdded }) => {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 2,
+          opacity: isLoading ? 0.7 : 1,
+          position: 'relative',
           '&:hover': {
-            borderColor: theme.palette.primary.main,
-            backgroundColor: alpha(theme.palette.primary.main, 0.03)
+            borderColor: isLoading ? theme.palette.divider : theme.palette.primary.main,
+            backgroundColor: isLoading 
+              ? alpha(theme.palette.background.default, 0.5)
+              : alpha(theme.palette.primary.main, 0.03)
           }
         }}
         onClick={handleFileSelect}
@@ -120,34 +244,44 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAdded }) => {
         <CloudUpload 
           sx={{ 
             fontSize: 48, 
-            color: isDragOver ? theme.palette.primary.main : theme.palette.text.secondary,
+            color: isDragOver && !isLoading 
+              ? theme.palette.primary.main 
+              : isLoading 
+                ? theme.palette.action.disabled
+                : theme.palette.text.secondary,
             mb: 1
           }} 
         />
         
         <Typography variant="h6" color="textPrimary" gutterBottom>
-          Drop video files here
+          {isLoading ? 'Processing files...' : 'Drop video files here'}
         </Typography>
         
         <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-          or click to browse files
+          {isLoading ? 'Please wait while files are being processed' : 'or click to browse files'}
         </Typography>
         
         <Button
           variant="outlined"
-          startIcon={<FolderOpen />}
+          startIcon={isLoading ? <CircularProgress size={20} /> : <FolderOpen />}
           onClick={(e) => {
             e.stopPropagation()
             handleFileSelect()
           }}
+          disabled={isLoading}
           sx={{
             '&:hover': {
-              transform: 'translateY(-1px)',
-              boxShadow: theme.shadows[4]
+              transform: isLoading ? 'none' : 'translateY(-1px)',
+              boxShadow: isLoading ? 'none' : theme.shadows[4]
+            },
+            '&:disabled': {
+              backgroundColor: alpha(theme.palette.action.disabled, 0.05),
+              borderColor: theme.palette.action.disabled,
+              color: theme.palette.action.disabled
             }
           }}
         >
-          Browse Files
+          {isLoading ? 'Loading...' : 'Browse Files'}
         </Button>
       </Box>
 
@@ -208,6 +342,56 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAdded }) => {
           </List>
         </Box>
       )}
+
+      {/* Loading Backdrop */}
+      <Backdrop
+        sx={{
+          color: theme.palette.primary.main,
+          zIndex: theme.zIndex.drawer + 1,
+          position: 'absolute',
+          borderRadius: 2,
+          backgroundColor: alpha(theme.palette.background.default, 0.8)
+        }}
+        open={isLoading}
+      >
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 2
+          }}
+        >
+          <CircularProgress color="primary" size={40} />
+          <Typography variant="body2" color="primary">
+            Processing files...
+          </Typography>
+        </Box>
+      </Backdrop>
+
+      {/* Notification Snackbar */}
+      <Snackbar
+        open={notification.open}
+        autoHideDuration={6000}
+        onClose={closeNotification}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={closeNotification}
+          severity={notification.severity}
+          variant="filled"
+          sx={{
+            width: '100%',
+            alignItems: 'center'
+          }}
+          iconMapping={{
+            success: <CheckCircle fontSize="inherit" />,
+            error: <ErrorIcon fontSize="inherit" />
+          }}
+        >
+          {notification.message}
+        </Alert>
+      </Snackbar>
     </Box>
   )
 }
