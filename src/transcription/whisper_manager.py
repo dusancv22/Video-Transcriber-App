@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Dict, Any
-import whisper
+from faster_whisper import WhisperModel
 import torch
 import time
 import logging
@@ -22,7 +22,8 @@ class WhisperManager:
         try:
             start_time = time.time()
             print(f"Loading Whisper {self.model_size} model...")
-            self.model = whisper.load_model(self.model_size).to(self.device)
+            # Use faster-whisper model loading
+            self.model = WhisperModel(self.model_size, device=self.device)
             load_time = time.time() - start_time
             print(f"Model loaded successfully on {self.device} (took {load_time:.2f} seconds)")
             logger.info(f"Model loaded successfully on {self.device} (took {load_time:.2f} seconds)")
@@ -35,8 +36,13 @@ class WhisperManager:
         """
         Transcribe a single MP3 audio file with enhanced repetition prevention.
         
-        Uses optimized Whisper parameters to prevent repetitive transcription output
-        and includes post-processing to detect and clean any remaining repetition.
+        Uses optimized faster-whisper parameters to prevent repetitive transcription output:
+        - condition_on_previous_text=False: Prevents context bleeding between segments
+        - beam_size=1: Uses greedy decoding to reduce repetition likelihood
+        - vad_filter=True: Voice Activity Detection for cleaner segment boundaries
+        - temperature=0.0: Eliminates randomness for consistent output
+        
+        Includes post-processing to detect and clean any remaining repetition.
         """
         if not self.model:
             raise RuntimeError("Model not loaded. Call load_model() first.")
@@ -54,30 +60,30 @@ class WhisperManager:
             # Log start of transcription
             start_time = time.time()
             print(f"\nStarting transcription of: {audio_path.name}")
+            print(f"Using optimized parameters: beam_size=1, condition_on_previous_text=False, vad_filter=True")
             logger.info(f"Starting transcription of: {audio_path.name}")
             
             # Get file size for logging
             file_size_mb = audio_path.stat().st_size / (1024 * 1024)
             print(f"File size: {file_size_mb:.2f} MB")
             
-            # Perform transcription with enhanced repetition prevention parameters
-            result = self.model.transcribe(
+            # Perform transcription with faster-whisper compatible parameters for optimal repetition prevention
+            segments, info = self.model.transcribe(
                 str(audio_path),
                 language='en',  # Force English language
                 task='transcribe',  # Ensure we're in transcription mode
-                fp16=False,  # Use FP32 for better accuracy
                 temperature=0.0,  # Eliminate randomness for consistent output
-                compression_ratio_threshold=2.4,  # Detect repetitive/low-quality content
-                logprob_threshold=-1.0,  # Filter out low-confidence transcriptions
-                no_captions_threshold=0.6,  # Skip segments with no clear speech
-                condition_on_previous_text=False,  # Prevent context bleeding between segments
+                condition_on_previous_text=False,  # CRITICAL: prevents repetition between segments
                 initial_prompt=None,  # Clear initial prompt to prevent bias
-                suppress_blank=True,  # Remove blank/empty segments
-                suppress_tokens=[-1],  # Suppress specific problematic tokens if needed
+                beam_size=1,  # Reduces repetition likelihood by using greedy decoding
+                vad_filter=True,  # Voice Activity Detection for cleaner segment boundaries
+                vad_parameters=dict(
+                    min_silence_duration_ms=500  # Customize silence detection for better segmentation
+                )
             )
             
-            # Get the raw transcription text
-            raw_text = result['text']
+            # Convert segments to text (faster-whisper returns generator)
+            raw_text = ' '.join([segment.text for segment in segments])
             
             # Apply repetition detection and cleanup
             cleaned_text = self._clean_transcription_text(raw_text)
@@ -92,13 +98,13 @@ class WhisperManager:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             print(f"Transcription completed in {duration:.2f} seconds")
-            print(f"Detected language: {result['language']}")
+            print(f"Detected language: {info.language}")
             logger.info(f"Transcription of {audio_path.name} completed in {duration:.2f} seconds")
-            logger.info(f"Detected language: {result['language']}")
+            logger.info(f"Detected language: {info.language}")
             
             return {
                 'text': cleaned_text,
-                'language': result['language'],
+                'language': info.language,
                 'duration': duration,
                 'timestamp': timestamp,
                 'file_size_mb': file_size_mb

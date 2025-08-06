@@ -92,7 +92,13 @@ class TranscriptionPipeline:
                     )
                 
                 result = self.whisper_manager.transcribe_audio(audio_file)
-                full_text.append(result['text'])
+                raw_text = result['text']
+                
+                # Format each segment immediately after transcription
+                print(f"  Formatting segment {idx} text...")
+                formatted_text = self.text_processor.format_segment_text(raw_text)
+                full_text.append(formatted_text)
+                
                 if not detected_language:
                     detected_language = result['language']
                     
@@ -122,7 +128,9 @@ class TranscriptionPipeline:
                 print("Single segment - no deduplication needed")
                 combined_text = full_text[0] if full_text else ""
             
-            processed_text = self.text_processor.process_transcript(combined_text)
+            # Since segments are pre-formatted, only do final cleanup
+            print("Applying final text cleanup...")
+            processed_text = self.text_processor.format_text(combined_text)
             
             processing_time = time.time() - processing_start
             print(f"Post-processing completed in {processing_time:.2f} seconds")
