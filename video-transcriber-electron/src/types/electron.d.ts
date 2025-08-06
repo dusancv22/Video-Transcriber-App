@@ -21,6 +21,26 @@ export interface ElectronAPI {
   notification: {
     show: (title: string, body: string, options?: NotificationOptions) => void
   }
+
+  // Path utilities
+  path: {
+    getDefaultOutputDirectory: () => Promise<string>
+    getUserDocumentsPath: () => Promise<string>
+  }
+
+  // File utilities - IPC-based approach
+  file: {
+    getFilePathsFromDrop: (files: FileList) => Promise<string[]>
+    selectVideoFiles: () => Promise<string[]>
+  }
+
+  // Window controls for frameless window
+  window: {
+    close: () => Promise<void>
+    minimize: () => Promise<void>
+    maximize: () => Promise<void>
+    toggleDevTools: () => Promise<void>
+  }
 }
 
 declare global {

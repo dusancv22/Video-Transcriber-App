@@ -21,20 +21,25 @@ import {
   Clear,
   Queue as QueueIcon,
   ErrorOutline,
-  CheckCircle
+  CheckCircle,
+  Minimize,
+  CropSquare,
+  Close
 } from '@mui/icons-material'
 import FileDropZone from './FileDropZone'
 import QueuePanel from './QueuePanel'
-import ProgressSection from './ProgressSection'
 import StatusBar from './StatusBar'
 import SettingsDialog from './SettingsDialog'
+import SettingsStatusPanel from './SettingsStatusPanel'
+import FirstRunWelcome from './FirstRunWelcome'
 import { useAppStore } from '../store/appStore'
 
 const MainWindow: React.FC = () => {
   const theme = useTheme()
   
-  // Local state for settings dialog
+  // Local state for dialogs
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [firstRunOpen, setFirstRunOpen] = useState(false)
   
   // Get state and actions from store
   const {
@@ -43,6 +48,8 @@ const MainWindow: React.FC = () => {
     error,
     isLoading,
     wsConnectionState,
+    processingOptions,
+    isSettingsLoaded,
     fetchAppStatus,
     fetchQueue,
     fetchProcessingStatus,
@@ -73,16 +80,26 @@ const MainWindow: React.FC = () => {
     initializeApp()
   }, [fetchAppStatus, fetchQueue, fetchProcessingStatus, initializeWebSocket])
 
+  // Check for first-run experience
+  useEffect(() => {
+    if (isSettingsLoaded) {
+      const hasSeenWelcome = localStorage.getItem('video-transcriber-welcome-seen')
+      const hasValidSettings = processingOptions.output_directory && processingOptions.output_directory.trim().length > 0
+      
+      // Show welcome if user hasn't seen it and doesn't have valid settings
+      if (!hasSeenWelcome && !hasValidSettings) {
+        setFirstRunOpen(true)
+      }
+    }
+  }, [isSettingsLoaded, processingOptions])
+
   // Derived state
   const isProcessing = processingStatus?.is_processing || false
   const isPaused = processingStatus?.is_paused || false
 
   const handleStart = async () => {
-    try {
-      await startProcessing()
-    } catch (error) {
-      console.error('Failed to start processing:', error)
-    }
+    // Open settings dialog first to allow user to configure options
+    setSettingsOpen(true)
   }
 
   const handlePause = async () => {
@@ -131,6 +148,36 @@ const MainWindow: React.FC = () => {
 
   const handleCloseSettings = () => {
     setSettingsOpen(false)
+  }
+
+  const handleCloseFirstRun = () => {
+    setFirstRunOpen(false)
+    // Mark welcome as seen
+    localStorage.setItem('video-transcriber-welcome-seen', 'true')
+  }
+
+  const handleFirstRunOpenSettings = () => {
+    handleCloseFirstRun()
+    setSettingsOpen(true)
+  }
+
+  // Window control handlers
+  const handleWindowClose = () => {
+    if (window.electronAPI?.window?.close) {
+      window.electronAPI.window.close()
+    }
+  }
+
+  const handleWindowMinimize = () => {
+    if (window.electronAPI?.window?.minimize) {
+      window.electronAPI.window.minimize()
+    }
+  }
+
+  const handleWindowMaximize = () => {
+    if (window.electronAPI?.window?.maximize) {
+      window.electronAPI.window.maximize()
+    }
   }
 
   // Clear error after 5 seconds
@@ -263,6 +310,60 @@ const MainWindow: React.FC = () => {
             >
               <Settings />
             </IconButton>
+            
+            {/* Window Controls */}
+            <Box sx={{ ml: 2, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <IconButton
+                onClick={handleWindowMinimize}
+                sx={{ 
+                  color: 'white',
+                  width: 32,
+                  height: 32,
+                  '&:hover': {
+                    backgroundColor: alpha(theme.palette.common.white, 0.1)
+                  }
+                }}
+                size="small"
+                aria-label="Minimize window"
+                title="Minimize"
+              >
+                <Minimize sx={{ fontSize: 16 }} />
+              </IconButton>
+              
+              <IconButton
+                onClick={handleWindowMaximize}
+                sx={{ 
+                  color: 'white',
+                  width: 32,
+                  height: 32,
+                  '&:hover': {
+                    backgroundColor: alpha(theme.palette.common.white, 0.1)
+                  }
+                }}
+                size="small"
+                aria-label="Maximize window"
+                title="Maximize/Restore"
+              >
+                <CropSquare sx={{ fontSize: 14 }} />
+              </IconButton>
+              
+              <IconButton
+                onClick={handleWindowClose}
+                sx={{ 
+                  color: 'white',
+                  width: 32,
+                  height: 32,
+                  '&:hover': {
+                    backgroundColor: '#e53e3e'
+                  }
+                }}
+                size="small"
+                aria-label="Close window"
+                title="Close"
+              >
+                <Close sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Box>
           </Box>
         </Toolbar>
       </AppBar>
@@ -294,7 +395,7 @@ const MainWindow: React.FC = () => {
             </Paper>
           </Grid>
 
-          {/* Right Panel - Queue and Progress */}
+          {/* Right Panel - Queue, Settings, and Progress */}
           <Grid item xs={12} md={7}>
             <Grid container spacing={2} sx={{ height: '100%' }}>
               {/* Queue Panel */}
@@ -321,12 +422,9 @@ const MainWindow: React.FC = () => {
                 </Paper>
               </Grid>
 
-              {/* Progress Section */}
+              {/* Settings Status Panel */}
               <Grid item xs={12} sx={{ height: '40%' }}>
-                <ProgressSection 
-                  isProcessing={isProcessing}
-                  isPaused={isPaused}
-                />
+                <SettingsStatusPanel onOpenSettings={handleOpenSettings} />
               </Grid>
             </Grid>
           </Grid>
@@ -340,6 +438,17 @@ const MainWindow: React.FC = () => {
       <SettingsDialog 
         open={settingsOpen} 
         onClose={handleCloseSettings}
+        onSaveAndStart={() => {
+          // Optional callback when processing starts from settings
+          console.log('Processing started from settings dialog')
+        }}
+      />
+
+      {/* First Run Welcome Dialog */}
+      <FirstRunWelcome
+        open={firstRunOpen}
+        onClose={handleCloseFirstRun}
+        onOpenSettings={handleFirstRunOpenSettings}
       />
     </Box>
   )

@@ -62,28 +62,54 @@ class WhisperManager:
             print(f"\nStarting transcription of: {audio_path.name}")
             print(f"Using optimized parameters: beam_size=1, condition_on_previous_text=False, vad_filter=True")
             logger.info(f"Starting transcription of: {audio_path.name}")
+            logger.info(f"[WHISPER_DEBUG] Model loaded: {self.model is not None}")
+            logger.info(f"[WHISPER_DEBUG] Device: {self.device}")
+            logger.info(f"[WHISPER_DEBUG] Audio file exists: {audio_path.exists()}")
             
             # Get file size for logging
             file_size_mb = audio_path.stat().st_size / (1024 * 1024)
             print(f"File size: {file_size_mb:.2f} MB")
             
             # Perform transcription with faster-whisper compatible parameters for optimal repetition prevention
-            segments, info = self.model.transcribe(
-                str(audio_path),
-                language='en',  # Force English language
-                task='transcribe',  # Ensure we're in transcription mode
-                temperature=0.0,  # Eliminate randomness for consistent output
-                condition_on_previous_text=False,  # CRITICAL: prevents repetition between segments
-                initial_prompt=None,  # Clear initial prompt to prevent bias
-                beam_size=1,  # Reduces repetition likelihood by using greedy decoding
-                vad_filter=True,  # Voice Activity Detection for cleaner segment boundaries
-                vad_parameters=dict(
-                    min_silence_duration_ms=500  # Customize silence detection for better segmentation
+            logger.info(f"[WHISPER_DEBUG] Starting model.transcribe() call...")
+            transcribe_start = time.time()
+            
+            try:
+                segments, info = self.model.transcribe(
+                    str(audio_path),
+                    language='en',  # Force English language
+                    task='transcribe',  # Ensure we're in transcription mode
+                    temperature=0.0,  # Eliminate randomness for consistent output
+                    condition_on_previous_text=False,  # CRITICAL: prevents repetition between segments
+                    initial_prompt=None,  # Clear initial prompt to prevent bias
+                    beam_size=1,  # Reduces repetition likelihood by using greedy decoding
+                    vad_filter=True,  # Voice Activity Detection for cleaner segment boundaries
+                    vad_parameters=dict(
+                        min_silence_duration_ms=500  # Customize silence detection for better segmentation
+                    )
                 )
-            )
+                transcribe_time = time.time() - transcribe_start
+                logger.info(f"[WHISPER_DEBUG] model.transcribe() completed in {transcribe_time:.2f} seconds")
+                logger.info(f"[WHISPER_DEBUG] Info object: {info}")
+                
+            except Exception as transcribe_error:
+                transcribe_time = time.time() - transcribe_start
+                logger.error(f"[WHISPER_DEBUG] model.transcribe() FAILED after {transcribe_time:.2f} seconds")
+                logger.error(f"[WHISPER_DEBUG] Transcribe error: {str(transcribe_error)}")
+                raise transcribe_error
             
             # Convert segments to text (faster-whisper returns generator)
-            raw_text = ' '.join([segment.text for segment in segments])
+            logger.info(f"[WHISPER_DEBUG] Converting segments to text...")
+            segment_texts = []
+            segment_count = 0
+            
+            for segment in segments:
+                segment_texts.append(segment.text)
+                segment_count += 1
+                
+            logger.info(f"[WHISPER_DEBUG] Processed {segment_count} segments")
+            raw_text = ' '.join(segment_texts)
+            logger.info(f"[WHISPER_DEBUG] Raw text length: {len(raw_text)} chars")
             
             # Apply repetition detection and cleanup
             cleaned_text = self._clean_transcription_text(raw_text)

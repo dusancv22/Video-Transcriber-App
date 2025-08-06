@@ -2,12 +2,14 @@
 Write-Host "🎬 Starting Video Transcriber App..." -ForegroundColor Cyan
 Write-Host ""
 
-# Check if Python is available
+# Check if Python is available (using virtual environment)
+$pythonPath = "$PSScriptRoot\..\..\venv\Scripts\python.exe"
 try {
-    python --version | Out-Null
-    Write-Host "✅ Python is available" -ForegroundColor Green
+    & $pythonPath --version | Out-Null
+    Write-Host "✅ Python is available (virtual environment)" -ForegroundColor Green
 } catch {
-    Write-Host "❌ Python not found. Please install Python first." -ForegroundColor Red
+    Write-Host "❌ Python not found in virtual environment: $pythonPath" -ForegroundColor Red
+    Write-Host "Please ensure the virtual environment is set up correctly." -ForegroundColor Yellow
     pause
     exit 1
 }
@@ -28,7 +30,8 @@ Write-Host "🐍 Starting FastAPI Backend..." -ForegroundColor Yellow
 # Start backend in new window
 $backendJob = Start-Job -ScriptBlock {
     Set-Location "$using:PSScriptRoot\backend"
-    python main.py
+    $pythonExe = "$using:PSScriptRoot\..\..\venv\Scripts\python.exe"
+    & $pythonExe main.py
 }
 
 # Wait a moment for backend to start

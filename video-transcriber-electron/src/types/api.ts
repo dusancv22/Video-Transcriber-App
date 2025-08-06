@@ -143,6 +143,7 @@ export type WebSocketEventType =
   | 'file_completed'
   | 'file_failed'
   | 'session_complete'
+  | 'overall_progress_update'
   | 'error'
   | 'system_notification'
 
@@ -207,6 +208,14 @@ export interface SessionCompleteEvent extends BaseWebSocketEvent {
   output_directory: string
 }
 
+export interface OverallProgressUpdateEvent extends BaseWebSocketEvent {
+  type: 'overall_progress_update'
+  processed_files: number
+  total_files: number
+  overall_progress: number
+  current_file?: string
+}
+
 export interface ErrorEvent extends BaseWebSocketEvent {
   type: 'error'
   error: string
@@ -232,6 +241,7 @@ export type WebSocketEvent =
   | FileCompletedEvent
   | FileFailedEvent
   | SessionCompleteEvent
+  | OverallProgressUpdateEvent
   | ErrorEvent
   | SystemNotificationEvent
 
@@ -259,4 +269,7 @@ export interface FileUploadOptions {
 
 export interface ProcessingOptions {
   output_directory: string
+  whisper_model: 'base' | 'small' | 'medium' | 'large'
+  language: 'en' | 'auto'
+  output_format: 'txt' | 'srt' | 'vtt'
 }

@@ -46,8 +46,10 @@ class ElectronApp {
       minWidth: 800,
       minHeight: 600,
       icon: path.join(process.env.VITE_PUBLIC || ".", "icon.png"),
+      frame: false,
+      // Remove native window chrome to prevent double title bar
       webPreferences: {
-        preload: path.join(__dirname, "../preload/index.js"),
+        preload: path.join(__dirname, "./preload.js"),
         nodeIntegration: false,
         contextIsolation: true,
         enableRemoteModule: false,
@@ -59,11 +61,8 @@ class ElectronApp {
       titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default"
     });
     this.mainWindow.once("ready-to-show", () => {
-      var _a, _b;
+      var _a;
       (_a = this.mainWindow) == null ? void 0 : _a.show();
-      if (isDev) {
-        (_b = this.mainWindow) == null ? void 0 : _b.webContents.openDevTools();
-      }
     });
     if (VITE_DEV_SERVER_URL) {
       await this.mainWindow.loadURL(VITE_DEV_SERVER_URL);
@@ -80,6 +79,98 @@ class ElectronApp {
         electron.shell.openExternal(url);
       }
     });
+    this.setupFileDropHandling();
+    this.registerDevToolsShortcut();
+  }
+  setupFileDropHandling() {
+    if (!this.mainWindow) return;
+    this.mainWindow.webContents.on("will-navigate", (event, navigationUrl) => {
+      if (navigationUrl.startsWith("file://")) {
+        event.preventDefault();
+        const filePath = decodeURIComponent(navigationUrl.replace("file:///", ""));
+        console.log("File drop via navigation detected:", filePath);
+        this.handleFileDropFromPath([filePath]);
+      }
+    });
+    this.mainWindow.webContents.on("dom-ready", () => {
+      var _a;
+      (_a = this.mainWindow) == null ? void 0 : _a.webContents.executeJavaScript(`
+        // Enhanced drag-drop with native file path support
+        document.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = 'copy';
+        });
+        
+        document.addEventListener('drop', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          console.log('🎯 Drop event detected - processing files...');
+          
+          // Get the files from the drop event
+          const files = Array.from(e.dataTransfer.files);
+          
+          if (files.length === 0) {
+            console.log('❌ No files found in drop event');
+            return;
+          }
+          
+          // Extract file paths - in Electron, the File object has a 'path' property
+          const filePaths = files
+            .map(file => {
+              // In Electron context, files have a 'path' property with the full system path
+              const path = file.path || '';
+              console.log('📁 File:', file.name, '-> Path:', path);
+              return path;
+            })
+            .filter(path => path && path.length > 0);
+          
+          console.log('📋 Extracted file paths:', filePaths);
+          
+          if (filePaths.length > 0) {
+            // Send file paths directly to renderer
+            window.postMessage({
+              type: 'native-file-drop',
+              filePaths: filePaths
+            }, '*');
+            
+            console.log('✅ File paths sent to renderer via postMessage');
+          } else {
+            console.log('⚠️ No valid file paths extracted from drop');
+          }
+        });
+        
+        console.log('🔧 Native drop handlers installed');
+      `);
+    });
+  }
+  handleFileDropFromPath(filePaths) {
+    if (!this.mainWindow || filePaths.length === 0) return;
+    console.log("Processing dropped file paths:", filePaths);
+    this.mainWindow.webContents.postMessage("native-file-drop", {
+      type: "native-file-drop",
+      filePaths
+    });
+  }
+  registerDevToolsShortcut() {
+    const toggleDevTools = () => {
+      if (this.mainWindow && this.mainWindow.webContents) {
+        if (this.mainWindow.webContents.isDevToolsOpened()) {
+          this.mainWindow.webContents.closeDevTools();
+        } else {
+          this.mainWindow.webContents.openDevTools({ mode: "detach" });
+        }
+      }
+    };
+    electron.globalShortcut.register("F12", toggleDevTools);
+    electron.globalShortcut.register("CommandOrControl+Shift+I", toggleDevTools);
+    electron.globalShortcut.register("CommandOrControl+Shift+J", () => {
+      if (this.mainWindow && this.mainWindow.webContents) {
+        this.mainWindow.webContents.openDevTools({ mode: "detach", activate: true });
+      }
+    });
+    console.log("DevTools shortcuts registered: F12, Ctrl+Shift+I, Ctrl+Shift+J");
   }
   startPythonBackend() {
     var _a, _b;
@@ -116,6 +207,7 @@ class ElectronApp {
   }
   cleanup() {
     var _a;
+    electron.globalShortcut.unregisterAll();
     if (pythonProcess) {
       console.log("Terminating Python backend process...");
       if (isWin32) {
@@ -152,6 +244,82 @@ electron.ipcMain.handle("shell:openExternal", async (_, url) => {
 });
 electron.ipcMain.handle("shell:showItemInFolder", (_, fullPath) => {
   electron.shell.showItemInFolder(fullPath);
+});
+electron.ipcMain.handle("path:getDefaultOutputDirectory", async () => {
+  try {
+    const documentsPath = path.join(os.homedir(), "Documents", "Video Transcriber");
+    return documentsPath.replace(/\\/g, "/");
+  } catch (error) {
+    console.error("Failed to get default output directory:", error);
+    return "./Video Transcriber Output";
+  }
+});
+electron.ipcMain.handle("path:getUserDocumentsPath", async () => {
+  try {
+    const documentsPath = path.join(os.homedir(), "Documents");
+    return documentsPath.replace(/\\/g, "/");
+  } catch (error) {
+    console.error("Failed to get user documents path:", error);
+    return "./";
+  }
+});
+electron.ipcMain.handle("file:getFilePathsFromDrop", async (_, fileData) => {
+  console.log("Legacy getFilePathsFromDrop called - native drop handling is now used instead");
+  console.log("Files requested:", fileData.map((f) => f.name));
+  return [];
+});
+electron.ipcMain.handle("file:selectVideoFiles", async () => {
+  try {
+    const focusedWindow = electron.BrowserWindow.getFocusedWindow();
+    if (!focusedWindow) return [];
+    const result = await electron.dialog.showOpenDialog(focusedWindow, {
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        { name: "Video Files", extensions: ["mp4", "avi", "mkv", "mov"] },
+        { name: "All Files", extensions: ["*"] }
+      ],
+      title: "Select Video Files to Transcribe"
+    });
+    if (result.canceled || !result.filePaths) {
+      return [];
+    }
+    return result.filePaths;
+  } catch (error) {
+    console.error("Failed to select video files:", error);
+    return [];
+  }
+});
+electron.ipcMain.handle("window:close", () => {
+  const focusedWindow = electron.BrowserWindow.getFocusedWindow();
+  if (focusedWindow) {
+    focusedWindow.close();
+  }
+});
+electron.ipcMain.handle("window:minimize", () => {
+  const focusedWindow = electron.BrowserWindow.getFocusedWindow();
+  if (focusedWindow) {
+    focusedWindow.minimize();
+  }
+});
+electron.ipcMain.handle("window:maximize", () => {
+  const focusedWindow = electron.BrowserWindow.getFocusedWindow();
+  if (focusedWindow) {
+    if (focusedWindow.isMaximized()) {
+      focusedWindow.unmaximize();
+    } else {
+      focusedWindow.maximize();
+    }
+  }
+});
+electron.ipcMain.handle("window:toggleDevTools", () => {
+  const focusedWindow = electron.BrowserWindow.getFocusedWindow();
+  if (focusedWindow) {
+    if (focusedWindow.webContents.isDevToolsOpened()) {
+      focusedWindow.webContents.closeDevTools();
+    } else {
+      focusedWindow.webContents.openDevTools({ mode: "detach" });
+    }
+  }
 });
 if (process.defaultApp) {
   if (process.argv.length >= 2) {

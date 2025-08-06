@@ -58,11 +58,14 @@ export class VideoTranscriberAPI {
    */
   static async addFiles(files: string[]): Promise<AddFilesResponse> {
     try {
+      console.log('🔗 API: Sending POST /files/add with:', files)
       const response = await api.post<AddFilesResponse>('/files/add', {
         files
       })
+      console.log('✅ API: Response received:', response.data)
       return response.data
     } catch (error) {
+      console.error('❌ API: Request failed:', error)
       throw new Error(`Failed to add files: ${error}`)
     }
   }
@@ -198,9 +201,57 @@ export class APIUtils {
   
   /**
    * Convert file paths from Electron file dialogs to API format
+   * Ensures consistent path handling between web and Electron environments
    */
   static formatFilePaths(filePaths: string[]): string[] {
-    return filePaths.map(path => path.replace(/\\/g, '/'))
+    return filePaths.map(path => {
+      // Normalize path separators for consistent handling
+      let normalizedPath = path.replace(/\\/g, '/')
+      
+      // For Electron environment, ensure proper path format
+      if (typeof window !== 'undefined' && (window as any).electronAPI) {
+        // In Electron, preserve full paths as-is after normalization
+        return normalizedPath
+      } else {
+        // In web mode, we can only work with file names
+        // Extract just the filename for web compatibility
+        const fileName = normalizedPath.split('/').pop() || normalizedPath
+        console.warn('Web mode: Using filename only due to browser security restrictions:', fileName)
+        return fileName
+      }
+    }).filter(path => path && path.trim().length > 0)
+  }
+
+  /**
+   * Validate file paths for current environment
+   */
+  static validateFilePaths(filePaths: string[]): { valid: string[], invalid: string[], warnings: string[] } {
+    const valid: string[] = []
+    const invalid: string[] = []
+    const warnings: string[] = []
+    
+    filePaths.forEach(path => {
+      if (!path || path.trim().length === 0) {
+        invalid.push(path)
+        return
+      }
+      
+      // Check for potential security issues
+      if (path.includes('..') || path.includes('~')) {
+        warnings.push(`Path contains potentially unsafe characters: ${path}`)
+      }
+      
+      // In web mode, warn about path limitations
+      if (typeof window !== 'undefined' && !(window as any).electronAPI) {
+        if (path.includes('/') || path.includes('\\')) {
+          warnings.push(`Web mode: Full paths not supported, using filename only: ${path}`)
+        }
+      }
+      
+      valid.push(path)
+    })
+    
+    return { valid, invalid, warnings }
   }
 
   /**

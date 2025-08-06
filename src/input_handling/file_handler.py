@@ -10,19 +10,26 @@ class FileHandler:
 
     def validate_file(self, file_path: str) -> Tuple[bool, str]:
         """Validate a video file."""
+        import os
         path = Path(file_path)
         
         # Check file extension first
         if path.suffix.lower() not in self.supported_formats:
             return False, f"Unsupported format: {path.suffix}"
-            
-        # Then check if file exists
-        if not path.exists():
-            return False, "File does not exist"
         
-        # Check file size
-        if path.stat().st_size == 0:
-            return False, "File is empty"
+        # Handle both absolute and relative paths
+        if os.path.isabs(file_path):
+            # For absolute paths (Electron mode), do full validation
+            if not path.exists():
+                return False, "File does not exist"
+            
+            # Check file size
+            if path.stat().st_size == 0:
+                return False, "File is empty"
+        else:
+            # For relative paths (web mode), skip file system validation
+            # since we can't access the actual file in web mode
+            pass
             
         return True, "File is valid"
 

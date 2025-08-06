@@ -231,7 +231,7 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({ isProcessing, isPause
         </Grid>
 
         {/* Current Processing Info */}
-        {isProcessing && !isPaused && (
+        {isProcessing && currentProcessingFile && (
           <Box sx={{ mt: 3 }}>
             <Typography variant="subtitle2" gutterBottom>
               Current File
@@ -239,18 +239,59 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({ isProcessing, isPause
             <Box
               sx={{
                 p: 2,
-                backgroundColor: alpha(theme.palette.primary.main, 0.05),
-                border: `1px solid ${alpha(theme.palette.primary.main, 0.15)}`,
+                backgroundColor: isPaused 
+                  ? alpha(theme.palette.warning.main, 0.05) 
+                  : alpha(theme.palette.primary.main, 0.05),
+                border: `1px solid ${alpha(
+                  isPaused ? theme.palette.warning.main : theme.palette.primary.main, 0.15
+                )}`,
                 borderRadius: 1
               }}
             >
               <Typography variant="body2" fontWeight={500} gutterBottom>
-                sample1.mp4
+                {currentProcessingFile.file_path.split(/[\\\/]/).pop() || currentProcessingFile.file_path}
               </Typography>
               <Typography variant="caption" color="textSecondary">
-                Transcribing audio segments • 45% complete
+                {currentProcessingFile.current_step || 'Processing'} • {Math.round(currentProcessingFile.progress || 0)}% complete
               </Typography>
+              
+              {/* Individual file progress bar */}
+              <LinearProgress
+                variant="determinate"
+                value={currentProcessingFile.progress || 0}
+                sx={{
+                  mt: 1,
+                  height: 4,
+                  borderRadius: 2,
+                  backgroundColor: alpha(
+                    isPaused ? theme.palette.warning.main : theme.palette.primary.main, 0.2
+                  ),
+                  '& .MuiLinearProgress-bar': {
+                    background: isPaused 
+                      ? theme.palette.warning.main 
+                      : theme.palette.gradient?.primary || theme.palette.primary.main,
+                    borderRadius: 2
+                  }
+                }}
+              />
             </Box>
+          </Box>
+        )}
+        
+        {/* Show message when no files are processing */}
+        {!isProcessing && totalFiles === 0 && (
+          <Box sx={{ mt: 3, textAlign: 'center' }}>
+            <Typography variant="body2" color="textSecondary">
+              No files in queue. Add video files to start transcription.
+            </Typography>
+          </Box>
+        )}
+        
+        {!isProcessing && totalFiles > 0 && completedFiles === totalFiles && (
+          <Box sx={{ mt: 3, textAlign: 'center' }}>
+            <Typography variant="body2" color="success.main" sx={{ fontWeight: 500 }}>
+              All files processed successfully!
+            </Typography>
           </Box>
         )}
       </Box>

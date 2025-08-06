@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain, dialog, globalShortcut } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
-import { platform } from 'os'
+import { platform, homedir } from 'os'
 
 // The built directory structure
 //
@@ -69,8 +69,9 @@ class ElectronApp {
       minWidth: 800,
       minHeight: 600,
       icon: join(process.env.VITE_PUBLIC || '.', 'icon.png'),
+      frame: false, // Remove native window chrome to prevent double title bar
       webPreferences: {
-        preload: join(__dirname, '../preload/index.js'),
+        preload: join(__dirname, './preload.js'),
         nodeIntegration: false,
         contextIsolation: true,
         enableRemoteModule: false,
@@ -106,21 +107,119 @@ class ElectronApp {
       }
     })
 
+    // Handle file drops at the main process level
+    this.setupFileDropHandling()
+
     // Register F12 shortcut to toggle DevTools
     this.registerDevToolsShortcut()
   }
 
+  private setupFileDropHandling(): void {
+    if (!this.mainWindow) return
+
+    // Prevent navigation to dropped files (security measure)
+    this.mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+      if (navigationUrl.startsWith('file://')) {
+        event.preventDefault()
+        // Extract file path and handle as drop
+        const filePath = decodeURIComponent(navigationUrl.replace('file:///', ''))
+        console.log('File drop via navigation detected:', filePath)
+        this.handleFileDropFromPath([filePath])
+      }
+    })
+
+    // Set up native drag-drop handling in renderer
+    this.mainWindow.webContents.on('dom-ready', () => {
+      this.mainWindow?.webContents.executeJavaScript(`
+        // Enhanced drag-drop with native file path support
+        document.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = 'copy';
+        });
+        
+        document.addEventListener('drop', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          console.log('🎯 Drop event detected - processing files...');
+          
+          // Get the files from the drop event
+          const files = Array.from(e.dataTransfer.files);
+          
+          if (files.length === 0) {
+            console.log('❌ No files found in drop event');
+            return;
+          }
+          
+          // Extract file paths - in Electron, the File object has a 'path' property
+          const filePaths = files
+            .map(file => {
+              // In Electron context, files have a 'path' property with the full system path
+              const path = file.path || '';
+              console.log('📁 File:', file.name, '-> Path:', path);
+              return path;
+            })
+            .filter(path => path && path.length > 0);
+          
+          console.log('📋 Extracted file paths:', filePaths);
+          
+          if (filePaths.length > 0) {
+            // Send file paths directly to renderer
+            window.postMessage({
+              type: 'native-file-drop',
+              filePaths: filePaths
+            }, '*');
+            
+            console.log('✅ File paths sent to renderer via postMessage');
+          } else {
+            console.log('⚠️ No valid file paths extracted from drop');
+          }
+        });
+        
+        console.log('🔧 Native drop handlers installed');
+      `)
+    })
+  }
+
+  private handleFileDropFromPath(filePaths: string[]): void {
+    if (!this.mainWindow || filePaths.length === 0) return
+    
+    console.log('Processing dropped file paths:', filePaths)
+    
+    // Send to renderer process
+    this.mainWindow.webContents.postMessage('native-file-drop', {
+      type: 'native-file-drop', 
+      filePaths: filePaths
+    })
+  }
+
   private registerDevToolsShortcut(): void {
-    // Register F12 globally to toggle DevTools
-    globalShortcut.register('F12', () => {
+    // Register multiple shortcuts to toggle DevTools (important for frameless window)
+    const toggleDevTools = () => {
       if (this.mainWindow && this.mainWindow.webContents) {
         if (this.mainWindow.webContents.isDevToolsOpened()) {
           this.mainWindow.webContents.closeDevTools()
         } else {
-          this.mainWindow.webContents.openDevTools()
+          this.mainWindow.webContents.openDevTools({ mode: 'detach' })
         }
       }
+    }
+
+    // Register F12 globally
+    globalShortcut.register('F12', toggleDevTools)
+    
+    // Also register Ctrl+Shift+I as alternative
+    globalShortcut.register('CommandOrControl+Shift+I', toggleDevTools)
+    
+    // Register Ctrl+Shift+J for console specifically
+    globalShortcut.register('CommandOrControl+Shift+J', () => {
+      if (this.mainWindow && this.mainWindow.webContents) {
+        this.mainWindow.webContents.openDevTools({ mode: 'detach', activate: true })
+      }
     })
+
+    console.log('DevTools shortcuts registered: F12, Ctrl+Shift+I, Ctrl+Shift+J')
   }
 
   private startPythonBackend(): void {
@@ -219,6 +318,100 @@ ipcMain.handle('shell:openExternal', async (_, url: string) => {
 
 ipcMain.handle('shell:showItemInFolder', (_, fullPath: string) => {
   shell.showItemInFolder(fullPath)
+})
+
+// Path utilities for safe directory handling
+ipcMain.handle('path:getDefaultOutputDirectory', async () => {
+  try {
+    // Get user's Documents folder and create a Video Transcriber subfolder
+    const documentsPath = join(homedir(), 'Documents', 'Video Transcriber')
+    return documentsPath.replace(/\\/g, '/') // Normalize path separators
+  } catch (error) {
+    console.error('Failed to get default output directory:', error)
+    // Fallback to app's working directory
+    return './Video Transcriber Output'
+  }
+})
+
+ipcMain.handle('path:getUserDocumentsPath', async () => {
+  try {
+    const documentsPath = join(homedir(), 'Documents')
+    return documentsPath.replace(/\\/g, '/')
+  } catch (error) {
+    console.error('Failed to get user documents path:', error)
+    return './'
+  }
+})
+
+// File handling utilities for drag-and-drop operations
+// Note: Drag-drop is now handled natively in setupFileDropHandling()
+// These IPC handlers are kept for backward compatibility but are no longer used
+ipcMain.handle('file:getFilePathsFromDrop', async (_, fileData: Array<{name: string, size: number, type: string, lastModified: number}>) => {
+  console.log('Legacy getFilePathsFromDrop called - native drop handling is now used instead')
+  console.log('Files requested:', fileData.map(f => f.name))
+  return [] // Always return empty - native handling is used
+})
+
+ipcMain.handle('file:selectVideoFiles', async () => {
+  try {
+    const focusedWindow = BrowserWindow.getFocusedWindow()
+    if (!focusedWindow) return []
+    
+    const result = await dialog.showOpenDialog(focusedWindow, {
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Video Files', extensions: ['mp4', 'avi', 'mkv', 'mov'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      title: 'Select Video Files to Transcribe'
+    })
+    
+    if (result.canceled || !result.filePaths) {
+      return []
+    }
+    
+    return result.filePaths
+  } catch (error) {
+    console.error('Failed to select video files:', error)
+    return []
+  }
+})
+
+// Window control handlers for frameless window
+ipcMain.handle('window:close', () => {
+  const focusedWindow = BrowserWindow.getFocusedWindow()
+  if (focusedWindow) {
+    focusedWindow.close()
+  }
+})
+
+ipcMain.handle('window:minimize', () => {
+  const focusedWindow = BrowserWindow.getFocusedWindow()
+  if (focusedWindow) {
+    focusedWindow.minimize()
+  }
+})
+
+ipcMain.handle('window:maximize', () => {
+  const focusedWindow = BrowserWindow.getFocusedWindow()
+  if (focusedWindow) {
+    if (focusedWindow.isMaximized()) {
+      focusedWindow.unmaximize()
+    } else {
+      focusedWindow.maximize()
+    }
+  }
+})
+
+ipcMain.handle('window:toggleDevTools', () => {
+  const focusedWindow = BrowserWindow.getFocusedWindow()
+  if (focusedWindow) {
+    if (focusedWindow.webContents.isDevToolsOpened()) {
+      focusedWindow.webContents.closeDevTools()
+    } else {
+      focusedWindow.webContents.openDevTools({ mode: 'detach' })
+    }
+  }
 })
 
 // Handle app protocol for deep linking (optional)

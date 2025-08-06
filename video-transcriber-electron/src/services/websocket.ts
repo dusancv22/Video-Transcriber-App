@@ -76,7 +76,12 @@ export class WebSocketService {
           this.stopHeartbeat()
           this.notifyConnectionStateChange()
           
+          // Always attempt reconnection for unexpected closures
           if (!event.wasClean && this.reconnectAttempts < this.maxReconnectAttempts) {
+            console.log(`🔄 WebSocket: Connection lost unexpectedly, scheduling reconnection attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts}`)
+            this.scheduleReconnect()
+          } else if (event.code !== 1000) { // 1000 = normal closure
+            console.log('🔄 WebSocket: Abnormal closure detected, attempting reconnection...')
             this.scheduleReconnect()
           }
         }
@@ -175,18 +180,32 @@ export class WebSocketService {
    * Handle incoming WebSocket messages
    */
   private handleMessage(event: WebSocketEvent): void {
-    console.log('WebSocket message received:', event.type, event)
+    console.log(`📨 WebSocket: Message received [${event.type}]`, event)
+
+    // Validate event structure
+    if (!event || !event.type) {
+      console.warn('⚠️ WebSocket: Received invalid event structure:', event)
+      return
+    }
+
+    // Filter out heartbeat responses to reduce noise
+    if (event.type === 'heartbeat_response') {
+      return
+    }
 
     // Notify specific event handlers
     const handlers = this.eventHandlers.get(event.type)
-    if (handlers) {
-      handlers.forEach(handler => {
+    if (handlers && handlers.length > 0) {
+      console.log(`🎯 WebSocket: Processing ${handlers.length} handler(s) for ${event.type}`)
+      handlers.forEach((handler, index) => {
         try {
           handler(event)
         } catch (error) {
-          console.error(`Error in WebSocket event handler for ${event.type}:`, error)
+          console.error(`❌ WebSocket: Error in event handler ${index + 1} for ${event.type}:`, error)
         }
       })
+    } else {
+      console.log(`⚠️ WebSocket: No handlers registered for event type: ${event.type}`)
     }
   }
 

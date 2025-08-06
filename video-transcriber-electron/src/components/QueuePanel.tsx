@@ -43,55 +43,7 @@ import {
 } from '@mui/icons-material'
 import { QueueItem, FileStatus } from '../types/api'
 
-// Mock data for development (fallback when API unavailable)
-const mockQueueItems: QueueItem[] = [
-  {
-    id: '1',
-    file_path: 'C:/Videos/sample1.mp4',
-    status: 'processing',
-    progress: 45,
-    processing_time: 120,
-    estimated_time_remaining: 150,
-    current_step: 'Transcribing audio segments',
-    file_size: 125829120, // ~120MB
-    duration: 300,
-    format: 'MP4',
-    created_at: '2025-01-06T10:00:00Z'
-  },
-  {
-    id: '2',
-    file_path: 'C:/Videos/interview.avi',
-    status: 'queued',
-    progress: 0,
-    file_size: 89478485, // ~85MB
-    format: 'AVI',
-    created_at: '2025-01-06T10:05:00Z'
-  },
-  {
-    id: '3',
-    file_path: 'C:/Videos/presentation.mkv',
-    status: 'completed',
-    progress: 100,
-    processing_time: 280,
-    output_file: 'C:/Output/presentation.txt',
-    file_size: 234567890, // ~224MB
-    duration: 1200,
-    format: 'MKV',
-    created_at: '2025-01-06T09:30:00Z',
-    completed_at: '2025-01-06T09:35:00Z'
-  },
-  {
-    id: '4',
-    file_path: 'C:/Videos/corrupted.mov',
-    status: 'failed',
-    progress: 0,
-    error: 'Audio extraction failed: Invalid file format',
-    error_code: 'AUDIO_EXTRACTION_FAILED',
-    file_size: 45678901, // ~44MB
-    format: 'MOV',
-    created_at: '2025-01-06T09:45:00Z'
-  }
-]
+// No mock data - start with empty queue
 
 import { useAppStore } from '../store/appStore'
 
@@ -189,8 +141,8 @@ const QueuePanel: React.FC<QueuePanelProps> = ({ items }) => {
     onConfirm: () => {}
   })
   
-  // Use store data if available, otherwise use props or fallback to mock data
-  const displayItems = items || queueItems.length > 0 ? queueItems : mockQueueItems
+  // Use store data if available, otherwise use props or empty array
+  const displayItems = items || queueItems
   const theme = useTheme()
 
   // Notification helper

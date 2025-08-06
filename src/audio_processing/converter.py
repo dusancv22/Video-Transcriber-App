@@ -185,10 +185,18 @@ class AudioConverter:
             
             # Load video and extract audio
             print("Loading video file...")
-            video = mp.VideoFileClip(str(video_path))
+            logger.info(f"[CONVERTER_DEBUG] Loading video file: {video_path}")
+            logger.info(f"[CONVERTER_DEBUG] Video file size: {video_path.stat().st_size / (1024*1024):.2f} MB")
+            
+            try:
+                video = mp.VideoFileClip(str(video_path))
+                logger.info(f"[CONVERTER_DEBUG] Video loaded successfully, duration: {video.duration:.2f}s")
+            except Exception as video_load_error:
+                logger.error(f"[CONVERTER_DEBUG] Video loading FAILED: {str(video_load_error)}")
+                raise video_load_error
             
             if video.audio is None:
-                error_msg = "Video has no audio track"
+                error_msg = "Video file contains no audio track. Cannot transcribe video without audio. Please check that your video file includes audio."
                 logger.error(error_msg)
                 print(f"Error: {error_msg}")
                 return False, []
@@ -197,13 +205,20 @@ class AudioConverter:
             
             # Convert to audio
             print("Converting to audio format...")
-            audio.write_audiofile(
-                str(output_path),
-                fps=44100,
-                nbytes=4,
-                codec='libmp3lame',
-                logger=None
-            )
+            logger.info(f"[CONVERTER_DEBUG] Starting audio extraction to: {output_path}")
+            
+            try:
+                audio.write_audiofile(
+                    str(output_path),
+                    fps=44100,
+                    nbytes=4,
+                    codec='libmp3lame',
+                    logger=None
+                )
+                logger.info(f"[CONVERTER_DEBUG] Audio extraction completed, file size: {output_path.stat().st_size / (1024*1024):.2f} MB")
+            except Exception as audio_write_error:
+                logger.error(f"[CONVERTER_DEBUG] Audio extraction FAILED: {str(audio_write_error)}")
+                raise audio_write_error
             
             # Update progress
             if progress_callback:

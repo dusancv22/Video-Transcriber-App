@@ -24,6 +24,26 @@ export interface ElectronAPI {
   notification: {
     show: (title: string, body: string, options?: NotificationOptions) => void
   }
+
+  // Path utilities
+  path: {
+    getDefaultOutputDirectory: () => Promise<string>
+    getUserDocumentsPath: () => Promise<string>
+  }
+
+  // File utilities - IPC-based approach  
+  file: {
+    getFilePathsFromDrop: (files: FileList) => Promise<string[]>
+    selectVideoFiles: () => Promise<string[]>
+  }
+
+  // Window controls for frameless window
+  window: {
+    close: () => Promise<void>
+    minimize: () => Promise<void>
+    maximize: () => Promise<void>
+    toggleDevTools: () => Promise<void>
+  }
 }
 
 // Expose protected methods that allow the renderer process to use
@@ -56,6 +76,34 @@ const electronAPI: ElectronAPI = {
         })
       }
     }
+  },
+
+  path: {
+    getDefaultOutputDirectory: () => ipcRenderer.invoke('path:getDefaultOutputDirectory'),
+    getUserDocumentsPath: () => ipcRenderer.invoke('path:getUserDocumentsPath')
+  },
+
+  file: {
+    getFilePathsFromDrop: (files: FileList) => {
+      // Convert FileList to serializable data and send via IPC
+      const fileData = Array.from(files).map(file => ({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        lastModified: file.lastModified
+      }))
+      return ipcRenderer.invoke('file:getFilePathsFromDrop', fileData)
+    },
+    
+    
+    selectVideoFiles: () => ipcRenderer.invoke('file:selectVideoFiles')
+  },
+
+  window: {
+    close: () => ipcRenderer.invoke('window:close'),
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    maximize: () => ipcRenderer.invoke('window:maximize'),
+    toggleDevTools: () => ipcRenderer.invoke('window:toggleDevTools')
   }
 }
 

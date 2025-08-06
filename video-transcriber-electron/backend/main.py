@@ -14,43 +14,64 @@ from typing import Optional, List, Dict, Any, Literal
 import uuid
 import re
 import shutil
+import time
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from contextlib import asynccontextmanager
 
 # Add the parent directory to Python path to import existing modules
 parent_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(parent_dir))
 
+# Setup basic logging first
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('backend.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Try to import the core transcription modules
 try:
     from src.transcription.transcription_pipeline import TranscriptionPipeline
     from src.transcription.whisper_manager import WhisperManager
     from src.input_handling.queue_manager import QueueManager as PyQtQueueManager
     from src.input_handling.file_handler import FileHandler
     from src.post_processing.text_processor import TextProcessor
-    from src.utils.logger import setup_logger
-    from src.utils.error_handler import ErrorHandler
+    
+    # Import error handler if available
+    try:
+        from src.utils.error_handler import ErrorHandler
+    except ImportError:
+        ErrorHandler = None
+        logger.warning("ErrorHandler not available")
+    
+    logger.info("Successfully imported all core transcription modules")
+    print("Successfully imported all core transcription modules")
+    REAL_PROCESSING_AVAILABLE = True
+    
 except ImportError as e:
-    print(f"Error importing existing modules: {e}")
-    print("Some imports may not be available, continuing with limited functionality...")
+    logger.error(f"CRITICAL ERROR importing existing modules: {e}")
+    print(f"CRITICAL ERROR importing existing modules: {e}")
+    print("Real transcription processing will NOT be available!")
+    print("This means the backend will fail to process video files.")
+    print(f"Working directory: {os.getcwd()}")
+    print(f"Python path: {sys.path}")
+    
     # Set None for missing imports
     TranscriptionPipeline = None
     WhisperManager = None
     PyQtQueueManager = None
     FileHandler = None
     TextProcessor = None
-    setup_logger = None
     ErrorHandler = None
-
-# Setup logging
-if setup_logger:
-    logger = setup_logger(__name__)
-else:
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+    REAL_PROCESSING_AVAILABLE = False
 
 # Global state
 app_state = {
@@ -107,7 +128,8 @@ class ProcessingOptionsRequest(BaseModel):
     language: Literal['en', 'auto'] = Field('en', description="Language for transcription")
     output_format: Literal['txt', 'srt', 'vtt'] = Field('txt', description="Output format")
     
-    @validator('output_directory')
+    @field_validator('output_directory')
+    @classmethod
     def validate_output_directory(cls, v):
         """Validate and normalize output directory path"""
         if not v or v.strip() == "":
@@ -124,19 +146,30 @@ class ProcessingOptionsRequest(BaseModel):
             
             # Check for invalid characters in path (Windows specific)
             if os.name == 'nt':  # Windows
-                invalid_chars = r'[<>:"|?*]'
-                if re.search(invalid_chars, str(path)):
-                    raise ValueError("Invalid characters in path")
+                # Windows invalid chars, but exclude : for drive letters (C:, D:, etc.)
+                path_str = str(path)
+                # Allow colon only after a single letter at the beginning (drive letter)
+                if re.match(r'^[A-Za-z]:[\\/]', path_str):
+                    # Valid drive letter format, check the rest of the path
+                    rest_of_path = path_str[3:]  # Skip "C:\" or "C:/"
+                    invalid_chars = r'[<>"|?*]'  # Exclude : from invalid chars
+                    if re.search(invalid_chars, rest_of_path):
+                        raise ValueError("Invalid characters in path")
+                else:
+                    # No drive letter format, check entire path for all invalid chars including :
+                    invalid_chars = r'[<>:"|?*]'
+                    if re.search(invalid_chars, path_str):
+                        raise ValueError("Invalid characters in path")
             
             return str(path)
             
         except Exception as e:
             raise ValueError(f"Invalid output directory path: {str(e)}")
     
-    @root_validator
-    def validate_configuration(cls, values):
+    @model_validator(mode='after')
+    def validate_configuration(self):
         """Additional validation for the entire configuration"""
-        output_dir = values.get('output_directory', '')
+        output_dir = self.output_directory
         
         if output_dir:
             try:
@@ -172,7 +205,7 @@ class ProcessingOptionsRequest(BaseModel):
             except Exception as e:
                 raise ValueError(f"Error validating output directory: {str(e)}")
                 
-        return values
+        return self
 
 class QueueItemResponse(BaseModel):
     id: str
@@ -201,7 +234,24 @@ async def initialize_backend():
         app_state["text_processor"] = TextProcessor() if TextProcessor else None
         app_state["queue_manager"] = ApiQueueManager()
         app_state["whisper_manager"] = WhisperManager() if WhisperManager else None
-        app_state["transcription_pipeline"] = TranscriptionPipeline() if TranscriptionPipeline else None
+        
+        # Initialize TranscriptionPipeline with better error handling
+        if TranscriptionPipeline:
+            try:
+                logger.info("Initializing TranscriptionPipeline...")
+                app_state["transcription_pipeline"] = TranscriptionPipeline()
+                logger.info("TranscriptionPipeline initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize TranscriptionPipeline: {e}")
+                app_state["transcription_pipeline"] = None
+                raise Exception(f"Cannot initialize TranscriptionPipeline: {e}")
+        else:
+            app_state["transcription_pipeline"] = None
+            logger.warning("TranscriptionPipeline class not available")
+        
+        # Verify critical components are available
+        if not app_state["transcription_pipeline"]:
+            raise Exception("TranscriptionPipeline initialization failed - real transcription unavailable")
         
         logger.info("Backend components initialized successfully")
         
@@ -252,12 +302,15 @@ class ApiQueueManager:
                         continue
                 else:
                     # Basic validation without FileHandler
-                    if not os.path.exists(file_path):
+                    # Skip file existence check for relative paths (web mode)
+                    if os.path.isabs(file_path) and not os.path.exists(file_path):
                         errors.append({
                             "file": file_path,
                             "error": "File not found"
                         })
                         continue
+                    elif not os.path.isabs(file_path):
+                        logger.info(f"Skipping existence check for relative path: {file_path}")
                     
                     # Check file extension
                     valid_extensions = {'.mp4', '.avi', '.mkv', '.mov'}
@@ -385,8 +438,15 @@ websocket_manager = ConnectionManager()
 
 @app.get("/health")
 async def health_check():
-    """Simple health check endpoint"""
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+    """Enhanced health check endpoint with debugging info"""
+    return {
+        "status": "healthy", 
+        "timestamp": datetime.now().isoformat(),
+        "real_processing_available": REAL_PROCESSING_AVAILABLE,
+        "transcription_pipeline_loaded": app_state.get("transcription_pipeline") is not None,
+        "working_directory": str(Path.cwd()),
+        "mock_processing_removed": True  # Flag to indicate mock processing was removed
+    }
 
 @app.get("/api/status")
 async def get_status():
@@ -398,18 +458,114 @@ async def get_status():
         "available_models": ["base", "small", "medium", "large"],
         "uptime": 0,  # TODO: Calculate actual uptime
         "backend_connected": True,
+        "real_processing_available": REAL_PROCESSING_AVAILABLE,
+        "working_directory": str(Path.cwd()),
         "components": {
             "file_handler": app_state["file_handler"] is not None,
             "whisper_manager": app_state["whisper_manager"] is not None,
-            "transcription_pipeline": app_state["transcription_pipeline"] is not None
+            "transcription_pipeline": app_state["transcription_pipeline"] is not None,
+            "pipeline_has_process_video": hasattr(app_state.get("transcription_pipeline"), "process_video") if app_state.get("transcription_pipeline") else False
         }
     }
 
+@app.get("/api/debug/queue")
+async def debug_queue():
+    """Debug endpoint to inspect queue state"""
+    try:
+        queue_manager = app_state["queue_manager"]
+        queue_status = queue_manager.get_queue_status()
+        
+        # Add more detailed information for debugging
+        detailed_items = []
+        for item in queue_status["items"]:
+            file_path = item.get("file_path", "")
+            item_debug = {
+                **item,
+                "path_is_absolute": os.path.isabs(file_path) if file_path else False,
+                "file_exists": os.path.exists(file_path) if file_path else False,
+                "is_file": os.path.isfile(file_path) if file_path and os.path.exists(file_path) else False,
+                "file_size_bytes": os.path.getsize(file_path) if file_path and os.path.exists(file_path) else None
+            }
+            detailed_items.append(item_debug)
+        
+        return {
+            "queue_status": queue_status,
+            "detailed_items": detailed_items,
+            "is_processing": app_state["is_processing"],
+            "is_paused": app_state["is_paused"],
+            "pipeline_ready": app_state["transcription_pipeline"] is not None,
+            "current_working_dir": str(Path.cwd())
+        }
+    except Exception as e:
+        logger.error(f"Error in debug endpoint: {e}")
+        return {"error": str(e)}
+
 @app.post("/api/files/add")
 async def add_files(request: FileUploadRequest):
-    """Add files to processing queue"""
+    """Add files to processing queue with enhanced validation"""
     try:
-        result = app_state["queue_manager"].add_files(request.files)
+        logger.info(f"Received request to add {len(request.files)} files")
+        
+        # Validate each file path before adding
+        validated_files = []
+        errors = []
+        
+        for file_path_str in request.files:
+            logger.info(f"Processing file path: {file_path_str}")
+            
+            # Handle both absolute and relative paths intelligently
+            if not os.path.isabs(file_path_str):
+                logger.warning(f"Received relative path (likely from web mode): {file_path_str}")
+                # For relative paths (web mode), we can't actually access the file
+                # but we'll add it to the queue with a note that it needs user verification
+                logger.info(f"Adding relative path to queue for web mode compatibility: {file_path_str}")
+                # Note: In production, you'd want to handle this differently
+                # For now, we'll accept relative paths but mark them as needing attention
+            else:
+                logger.info(f"Received absolute path: {file_path_str}")
+            
+            file_path = Path(file_path_str)
+            
+            # Skip file existence check for relative paths (web mode)
+            if os.path.isabs(file_path_str):
+                # Only check file existence for absolute paths (Electron mode)
+                if not file_path.exists():
+                    error_msg = f"File not found: {file_path_str}"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+                    continue
+                    
+                # Check if it's actually a file (not directory)
+                if not file_path.is_file():
+                    error_msg = f"Path is not a file: {file_path_str}"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+                    continue
+            else:
+                # For relative paths (web mode), we can't verify file existence
+                logger.info(f"Skipping file existence check for relative path: {file_path_str}")
+                
+            # Check file extension
+            if file_path.suffix.lower() not in ['.mp4', '.avi', '.mkv', '.mov']:
+                error_msg = f"Unsupported file type: {file_path.suffix} for {file_path_str}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+                continue
+                
+            logger.info(f"File validated successfully: {file_path_str}")
+            validated_files.append(file_path_str)
+        
+        if not validated_files:
+            error_detail = "No valid files to add. " + " ".join(errors)
+            logger.error(error_detail)
+            raise HTTPException(status_code=400, detail=error_detail)
+        
+        logger.info(f"Adding {len(validated_files)} validated files to queue")
+        result = app_state["queue_manager"].add_files(validated_files)
+        
+        # Include any validation warnings in the result
+        if errors:
+            result["warnings"] = errors
         
         # Broadcast queue update
         await websocket_manager.broadcast({
@@ -419,10 +575,13 @@ async def add_files(request: FileUploadRequest):
             "data": result
         })
         
+        logger.info(f"Successfully added {len(validated_files)} files to queue")
         return result
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error adding files: {e}")
+        logger.error(f"Unexpected error adding files: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/directory/add")
@@ -522,12 +681,33 @@ async def clear_queue():
 @app.post("/api/processing/start")
 async def start_processing(background_tasks: BackgroundTasks, options: ProcessingOptionsRequest):
     """Start processing queue with enhanced validation"""
+    logger.info("🚀 Processing start request received")
+    logger.info(f"📝 Request options: {options.dict()}")
+    
     try:
+        # Check if already processing
+        logger.info(f"🔍 Checking if already processing: {app_state['is_processing']}")
         if app_state["is_processing"]:
+            logger.warning("❌ Processing already in progress")
             raise HTTPException(status_code=400, detail="Processing already in progress")
         
+        # Check if real processing is available
+        logger.info(f"🔍 Checking processing availability: REAL_PROCESSING_AVAILABLE={REAL_PROCESSING_AVAILABLE}")
+        logger.info(f"🔍 Transcription pipeline available: {app_state['transcription_pipeline'] is not None}")
+        
+        if not REAL_PROCESSING_AVAILABLE or not app_state["transcription_pipeline"]:
+            logger.error("❌ Real transcription processing not available")
+            raise HTTPException(
+                status_code=503, 
+                detail="Real transcription processing is not available. TranscriptionPipeline failed to initialize."
+            )
+        
+        # Check queue status
         queue_status = app_state["queue_manager"].get_queue_status()
+        logger.info(f"📋 Queue status: {queue_status}")
+        
         if queue_status["queued_count"] == 0:
+            logger.error("❌ No files in queue to process")
             raise HTTPException(status_code=400, detail="No files in queue to process")
         
         # Validate processing options before starting
@@ -630,6 +810,20 @@ async def process_queue_background(options: ProcessingOptionsRequest):
         logger.info(f"Starting background queue processing with options: {options.dict()}")
         queue_manager = app_state["queue_manager"]
         pipeline = app_state["transcription_pipeline"]
+        
+        # Verify components are available
+        if not queue_manager:
+            raise Exception("Queue manager not initialized")
+            
+        if not pipeline:
+            raise Exception("TranscriptionPipeline not initialized - real processing unavailable")
+            
+        if not hasattr(pipeline, 'process_video'):
+            raise Exception("Pipeline missing process_video method - invalid pipeline instance")
+            
+        logger.info(f"Pipeline verification successful. Pipeline type: {type(pipeline)}")
+        logger.info(f"Real processing available: {REAL_PROCESSING_AVAILABLE}")
+        logger.info(f"Backend working directory: {Path.cwd()}")
         
         # Verify output directory one more time
         output_dir = Path(options.output_directory)
@@ -742,9 +936,39 @@ async def process_queue_background(options: ProcessingOptionsRequest):
         })
 
 async def process_single_file(item: Dict[str, Any], options: ProcessingOptionsRequest, pipeline, queue_manager):
-    """Process a single file with proper path handling and error management"""
+    """Process a single file using the real TranscriptionPipeline with comprehensive debugging"""
     file_id = item["id"]
     file_path = item["file_path"]
+    
+    # Process single file with enhanced error handling
+    logger.info(f"=== Starting process_single_file ===")
+    logger.info(f"File ID: {file_id}")
+    logger.info(f"File path received: {file_path}")
+    logger.info(f"File path type: {type(file_path)}")
+    
+    # Validate file path - handle both absolute and relative paths
+    if not os.path.isabs(file_path):
+        logger.warning(f"Processing relative path (web mode): {file_path}")
+        # For relative paths, skip file system validation since we can't access the file
+        # This is a limitation of web mode - files will be processed when user provides them
+        logger.info(f"Skipping file system validation for relative path: {file_path}")
+        file_path_obj = Path(file_path)
+    else:
+        logger.info(f"Processing absolute path (Electron mode): {file_path}")
+        file_path_obj = Path(file_path)
+        if not file_path_obj.exists():
+            error_msg = f"File does not exist: {file_path}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
+    
+    # Only check if it's a file for absolute paths (Electron mode)
+    if os.path.isabs(file_path) and not file_path_obj.is_file():
+        error_msg = f"Path is not a file: {file_path}"
+        logger.error(error_msg)
+        raise Exception(error_msg)
+    
+    logger.info(f"File validation passed")
+    logger.info(f"File size: {file_path_obj.stat().st_size / (1024*1024):.2f} MB")
     
     try:
         # Create and validate output directory
@@ -791,66 +1015,156 @@ async def process_single_file(item: Dict[str, Any], options: ProcessingOptionsRe
             "timestamp": datetime.now().isoformat()
         })
         
-        # Processing steps with realistic workflow
-        steps = [
-            ("Validating input file...", 5),
-            ("Extracting audio...", 20),
-            ("Loading Whisper model...", 35), 
-            ("Transcribing audio segments...", 80),
-            ("Post-processing text...", 90),
-            ("Saving transcript file...", 100)
-        ]
+        # Check if we have the real pipeline available
+        if not pipeline:
+            raise Exception("TranscriptionPipeline not available - cannot process video file")
         
-        for step_name, progress in steps:
+        # Verify pipeline has the process_video method
+        if not hasattr(pipeline, 'process_video'):
+            raise Exception("Pipeline does not have process_video method - cannot process video file")
+        
+        # Create a progress callback that updates the UI
+        async def progress_callback(progress_percent: float, step_description: str):
             if not app_state["is_processing"]:
-                logger.info(f"Processing stopped for file: {file_path}")
-                return
-                
-            # Update progress with detailed information
+                return False  # Signal to stop processing
+            
+            # Update queue item status
             queue_manager.update_item_status(
                 file_id,
                 "processing",
-                current_step=step_name,
-                progress=progress,
-                estimated_time_remaining=max(0, (100 - progress) * 1.5)  # More realistic estimate
+                current_step=step_description,
+                progress=progress_percent * 100,
+                estimated_time_remaining=max(0, (100 - progress_percent * 100) * 2.0)
             )
             
-            # Broadcast progress with enhanced data
+            # Broadcast progress update
             await websocket_manager.broadcast({
                 "type": "progress_update",
                 "file_id": file_id,
                 "file_path": file_path,
-                "progress": progress,
-                "step": step_name,
+                "progress": progress_percent * 100,
+                "step": step_description,
                 "output_file": str(output_file),
-                "estimated_time_remaining": max(0, (100 - progress) * 1.5),
+                "estimated_time_remaining": max(0, (100 - progress_percent * 100) * 2.0),
                 "timestamp": datetime.now().isoformat()
             })
             
-            # Simulate processing with variable time based on step
-            if "Transcribing" in step_name:
-                await asyncio.sleep(3)  # Longer for transcription
-            elif "Loading" in step_name:
-                await asyncio.sleep(2)  # Medium for model loading
-            else:
-                await asyncio.sleep(1)  # Quick for other steps
+            return True
         
-        # Verify output file was created (simulate for now)
-        try:
-            # Create a placeholder output file for testing
-            output_file.write_text(f"Transcript for: {input_file.name}\n\nThis is a simulated transcript.\nGenerated at: {datetime.now().isoformat()}")
+        # Create a progress callback that stores updates and immediately updates the queue
+        progress_updates = []
+        last_progress_broadcast = 0  # Throttle broadcast updates
+        
+        def sync_progress_callback(progress_percent: float, step_description: str):
+            nonlocal last_progress_broadcast
             
-            if not output_file.exists():
-                raise Exception("Output file was not created")
-                
-            file_size = output_file.stat().st_size
-            if file_size == 0:
-                raise Exception("Output file is empty")
-                
-            logger.info(f"Successfully created output file: {output_file} ({file_size} bytes)")
+            # Store progress updates for debugging
+            progress_updates.append({
+                'progress_percent': progress_percent,
+                'step_description': step_description,
+                'timestamp': datetime.now()
+            })
             
-        except Exception as e:
-            raise Exception(f"Failed to create output file: {str(e)}")
+            # Log progress for debugging
+            logger.info(f"Pipeline progress: {progress_percent*100:.1f}% - {step_description}")
+            
+            # Update queue item immediately (synchronous)
+            progress_value = progress_percent * 100
+            estimated_remaining = max(0, (100 - progress_value) * 2.0)
+            
+            queue_manager.update_item_status(
+                file_id,
+                "processing",
+                current_step=step_description,
+                progress=progress_value,
+                estimated_time_remaining=estimated_remaining
+            )
+            
+            # Throttle WebSocket broadcasts to avoid overwhelming the client
+            current_time = time.time()
+            if current_time - last_progress_broadcast >= 1.0:  # Broadcast at most once per second
+                last_progress_broadcast = current_time
+                
+                # Schedule WebSocket broadcast (will be sent after pipeline completes)
+                # For now we'll let the async progress updates handle WebSocket broadcasts
+                pass
+            
+            # Check if processing should be stopped
+            return app_state["is_processing"]
+        
+        logger.info(f"Starting real transcription processing for: {file_path}")
+        
+        # Use the REAL TranscriptionPipeline.process_video() method
+        # This will run synchronously and take significant time for large files
+        logger.info(f"Calling pipeline.process_video()...")
+        
+        processing_start_time = time.time()
+        
+        result = pipeline.process_video(
+            video_path=file_path,
+            output_dir=output_dir,
+            output_format=options.output_format,
+            progress_callback=sync_progress_callback
+        )
+        
+        processing_duration = time.time() - processing_start_time
+        logger.info(f"Pipeline processing completed in {processing_duration:.2f} seconds")
+        
+        # Send final progress updates via WebSocket
+        logger.info(f"Sending {len(progress_updates)} stored progress updates...")
+        for update in progress_updates[-5:]:  # Send only the last 5 updates to avoid spam
+            try:
+                await websocket_manager.broadcast({
+                    "type": "progress_update",
+                    "file_id": file_id,
+                    "file_path": file_path,
+                    "progress": update['progress_percent'] * 100,
+                    "step": update['step_description'],
+                    "output_file": str(output_file),
+                    "estimated_time_remaining": max(0, (100 - update['progress_percent'] * 100) * 2.0),
+                    "timestamp": update['timestamp'].isoformat()
+                })
+            except Exception as e:
+                logger.error(f"Error sending stored progress update: {e}")
+        
+        # Check if processing was successful
+        if not isinstance(result, dict):
+            logger.error(f"Pipeline returned invalid result type: {type(result)}")
+            raise Exception(f"Pipeline returned invalid result type: {type(result)}")
+            
+        success = result.get('success', False)
+        
+        if not success:
+            error_msg = result.get('error', 'Unknown transcription error')
+            logger.error(f"Pipeline reported failure: {error_msg}")
+            raise Exception(f"Transcription failed: {error_msg}")
+        
+        # Get the actual output file created by the pipeline
+        pipeline_output_file = result.get('transcript_path')
+        
+        if not pipeline_output_file:
+            logger.error(f"Pipeline result missing 'transcript_path' key. Available keys: {list(result.keys())}")
+            raise Exception("Pipeline did not return transcript_path")
+            
+        if not Path(pipeline_output_file).exists():
+            logger.error(f"Pipeline output file does not exist: {pipeline_output_file}")
+            raise Exception(f"Pipeline did not create output file: {pipeline_output_file}")
+        
+        # If the pipeline output is different from our expected output, rename it
+        if str(pipeline_output_file) != str(output_file):
+            pipeline_output_path = Path(pipeline_output_file)
+            pipeline_output_path.rename(output_file)
+            logger.info(f"Renamed pipeline output from {pipeline_output_file} to {output_file}")
+        
+        # Verify output file was created
+        if not output_file.exists():
+            raise Exception("Output file was not created by pipeline")
+            
+        file_size = output_file.stat().st_size
+        if file_size == 0:
+            raise Exception("Output file is empty")
+            
+        logger.info(f"Successfully created real transcript: {output_file} ({file_size} bytes)")
         
         # Calculate processing time
         processing_start = datetime.fromisoformat(item.get("started_at", datetime.now().isoformat()))
@@ -876,6 +1190,8 @@ async def process_single_file(item: Dict[str, Any], options: ProcessingOptionsRe
             "output_file": str(output_file),
             "processing_time": processing_time,
             "file_size": file_size,
+            "transcription_stats": result.get('processing_times', {}),
+            "language": result.get('language', 'unknown'),
             "timestamp": datetime.now().isoformat()
         })
         
@@ -892,6 +1208,8 @@ async def process_single_file(item: Dict[str, Any], options: ProcessingOptionsRe
             error_code = "DISK_SPACE_ERROR"
         elif "not found" in str(e).lower():
             error_code = "FILE_NOT_FOUND"
+        elif "no audio track" in str(e).lower() or "failed to convert video to audio" in str(e).lower():
+            error_code = "NO_AUDIO_TRACK"
         
         # Mark as failed with detailed error information
         queue_manager.update_item_status(

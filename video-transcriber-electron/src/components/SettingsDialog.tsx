@@ -27,10 +27,13 @@ import {
   Settings as SettingsIcon,
   RestartAlt as RestartAltIcon,
   Save as SaveIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  PlayArrow,
+  ErrorOutline
 } from '@mui/icons-material'
 import { useTheme, alpha } from '@mui/material/styles'
 import { useAppStore } from '../store/appStore'
+import { SystemCapabilityIndicator } from './SystemCapabilityHelper'
 
 // TypeScript interfaces for processing options
 export interface ProcessingOptions {
@@ -43,11 +46,25 @@ export interface ProcessingOptions {
 interface SettingsDialogProps {
   open: boolean
   onClose: () => void
+  onSaveAndStart?: () => void
 }
 
-// Default settings configuration
+// Get default output directory dynamically
+const getDefaultOutputDirectory = async (): Promise<string> => {
+  try {
+    if (typeof window !== 'undefined' && (window as any)?.electronAPI?.path?.getDefaultOutputDirectory) {
+      return await (window as any).electronAPI.path.getDefaultOutputDirectory()
+    }
+    return './Video Transcriber Output'
+  } catch (error) {
+    console.warn('Failed to get default output directory:', error)
+    return './transcripts'
+  }
+}
+
+// Default settings configuration with better system integration
 const DEFAULT_SETTINGS: ProcessingOptions = {
-  output_directory: 'C:/Output/Transcripts',
+  output_directory: '',  // Will be set dynamically
   whisper_model: 'large',
   language: 'en',
   output_format: 'txt'
@@ -102,9 +119,9 @@ const OUTPUT_FORMATS = [
   }
 ]
 
-export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
+export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, onSaveAndStart }) => {
   const theme = useTheme()
-  const { processingOptions, setProcessingOptions } = useAppStore()
+  const { processingOptions, setProcessingOptions, startProcessing } = useAppStore()
 
   // Local state for form values
   const [formValues, setFormValues] = useState<ProcessingOptions>(processingOptions)
@@ -113,16 +130,6 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose })
   const [success, setSuccess] = useState(false)
   const [directoryError, setDirectoryError] = useState<string | null>(null)
   const [isBrowsing, setIsBrowsing] = useState(false)
-
-  // Initialize form values when dialog opens
-  useEffect(() => {
-    if (open) {
-      setFormValues(processingOptions)
-      setError(null)
-      setSuccess(false)
-      setDirectoryError(null)
-    }
-  }, [open, processingOptions])
 
   // Validate directory path
   const validateDirectory = useCallback((path: string): boolean => {
@@ -142,6 +149,30 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose })
     return true
   }, [])
 
+  // Initialize form values when dialog opens
+  useEffect(() => {
+    if (open) {
+      const initializeSettings = async () => {
+        let settingsToUse = { ...processingOptions }
+        
+        // If output directory is empty, set a default
+        if (!settingsToUse.output_directory) {
+          settingsToUse.output_directory = await getDefaultOutputDirectory()
+        }
+        
+        setFormValues(settingsToUse)
+        setError(null)
+        setSuccess(false)
+        setDirectoryError(null)
+        
+        // Validate initial settings
+        validateDirectory(settingsToUse.output_directory)
+      }
+      
+      initializeSettings()
+    }
+  }, [open, processingOptions, validateDirectory])
+
   // Handle form field changes
   const handleFieldChange = useCallback((field: keyof ProcessingOptions, value: string) => {
     setFormValues(prev => ({ ...prev, [field]: value }))
@@ -158,6 +189,11 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose })
       setIsBrowsing(true)
       setError(null)
       
+      // Check if electronAPI is available
+      if (!window.electronAPI?.dialog?.showOpenDialog) {
+        throw new Error('Directory browsing is not available. Please enter the path manually.')
+      }
+      
       const result = await window.electronAPI.dialog.showOpenDialog({
         title: 'Select Output Directory',
         properties: ['openDirectory', 'createDirectory'],
@@ -171,6 +207,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose })
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to open directory dialog'
       setError(`Directory selection failed: ${errorMessage}`)
+      console.error('Directory browse error:', err)
     } finally {
       setIsBrowsing(false)
     }
@@ -206,6 +243,70 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose })
     }
   }, [formValues, validateDirectory, setProcessingOptions, onClose])
 
+  // Handle save and start processing
+  const handleSaveAndStart = useCallback(async () => {
+    console.log('🚀 Settings Dialog: Save & Start Processing clicked')
+    console.log('📋 Form values:', formValues)
+    
+    try {
+      setIsLoading(true)
+      setError(null)
+      
+      // Validate all fields
+      console.log('🔍 Validating directory:', formValues.output_directory)
+      if (!validateDirectory(formValues.output_directory)) {
+        console.error('❌ Directory validation failed')
+        return
+      }
+      console.log('✅ Directory validation passed')
+      
+      // Save settings to store
+      console.log('💾 Saving settings to store...')
+      setProcessingOptions(formValues)
+      console.log('✅ Settings saved to store')
+      
+      // Show success feedback briefly
+      setSuccess(true)
+      
+      // Start processing after a short delay
+      console.log('⏳ Starting processing in 500ms...')
+      setTimeout(async () => {
+        try {
+          console.log('🎬 Calling startProcessing()...')
+          console.log('📝 Processing options being used:', formValues)
+          
+          await startProcessing()
+          
+          console.log('✅ startProcessing() completed successfully')
+          console.log('🔐 Closing settings dialog...')
+          
+          onClose()
+          if (onSaveAndStart) {
+            console.log('📞 Calling onSaveAndStart callback...')
+            onSaveAndStart()
+          }
+          
+        } catch (error) {
+          console.error('❌ Failed to start processing:', error)
+          console.error('Error details:', {
+            message: error instanceof Error ? error.message : 'Unknown error',
+            stack: error instanceof Error ? error.stack : undefined,
+            type: typeof error,
+            error
+          })
+          setError(`Failed to start processing: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+      }, 500)
+      
+    } catch (err) {
+      console.error('❌ Error in handleSaveAndStart:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save settings'
+      setError(`Save failed: ${errorMessage}`)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [formValues, validateDirectory, setProcessingOptions, startProcessing, onClose, onSaveAndStart])
+
   // Handle cancel (discard changes)
   const handleCancel = useCallback(() => {
     setFormValues(processingOptions) // Reset to original values
@@ -225,6 +326,12 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose })
 
   // Check if form has changes
   const hasChanges = JSON.stringify(formValues) !== JSON.stringify(processingOptions)
+  
+  // Check if settings are valid for processing
+  const canStartProcessing = !directoryError && formValues.output_directory.trim().length > 0
+  
+  // Check if directory browsing is available
+  const canBrowseDirectory = typeof window !== 'undefined' && window.electronAPI?.dialog?.showOpenDialog
 
   return (
     <>
@@ -279,6 +386,32 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose })
 
         {/* Dialog Content */}
         <DialogContent sx={{ p: 3 }}>
+          {/* Enhanced Info Alert with Better Context */}
+          <Alert 
+            severity="info" 
+            sx={{ 
+              mb: 3,
+              '& .MuiAlert-message': {
+                width: '100%'
+              }
+            }}
+          >
+            <Box>
+              <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+                ⚙️ Configure Your Transcription Settings
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Choose your preferred output directory, AI model, and format settings. 
+                Click <strong>"Save & Start Processing"</strong> when ready to begin transcribing your queued files.
+              </Typography>
+              {formValues.whisper_model === 'large' && (
+                <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'info.main' }}>
+                  💡 Using Large model for maximum accuracy - processing may take longer but results will be superior.
+                </Typography>
+              )}
+            </Box>
+          </Alert>
+
           {/* Error Alert */}
           {error && (
             <Alert 
@@ -324,8 +457,20 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose })
                     value={formValues.output_directory}
                     onChange={(e) => handleFieldChange('output_directory', e.target.value)}
                     error={!!directoryError}
-                    helperText={directoryError || 'Choose where to save your transcribed files'}
-                    placeholder="C:\Output\Transcripts"
+                    helperText={
+                      directoryError ? (
+                        <Box component="span" sx={{ color: 'error.main', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <ErrorOutline sx={{ fontSize: 14 }} />
+                          {directoryError}
+                        </Box>
+                      ) : (
+                        <Box component="span" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <InfoIcon sx={{ fontSize: 14 }} />
+                          Choose where to save your transcribed files. Folder will be created if it doesn't exist.
+                        </Box>
+                      )
+                    }
+                    placeholder="e.g., C:\Documents\Video Transcripts"
                     variant="outlined"
                     disabled={isLoading || isBrowsing}
                     sx={{
@@ -337,9 +482,10 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose })
                   <Button
                     variant="outlined"
                     onClick={handleBrowseDirectory}
-                    disabled={isLoading || isBrowsing}
+                    disabled={isLoading || isBrowsing || !canBrowseDirectory}
                     startIcon={isBrowsing ? <CircularProgress size={16} /> : <FolderOpenIcon />}
                     sx={{ minWidth: 120, height: 56 }}
+                    title={!canBrowseDirectory ? 'Directory browsing not available. Please enter path manually.' : ''}
                   >
                     {isBrowsing ? 'Browsing...' : 'Browse'}
                   </Button>
@@ -390,6 +536,9 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose })
                     ))}
                   </Select>
                 </FormControl>
+                
+                {/* System Capability Indicator */}
+                <SystemCapabilityIndicator currentModel={formValues.whisper_model} />
               </Paper>
             </Grid>
 
@@ -514,20 +663,33 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose })
 
               {/* Save Button */}
               <Button
-                variant="contained"
+                variant="outlined"
                 color="primary"
                 startIcon={isLoading ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
                 onClick={handleSave}
                 disabled={isLoading || !hasChanges || !!directoryError}
+                sx={{ minWidth: 120 }}
+              >
+                {isLoading ? 'Saving...' : 'Save Only'}
+              </Button>
+
+              {/* Save & Start Processing Button */}
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={isLoading ? <CircularProgress size={16} color="inherit" /> : <PlayArrow />}
+                onClick={handleSaveAndStart}
+                disabled={isLoading || !canStartProcessing}
                 sx={{ 
-                  minWidth: 120,
+                  minWidth: 160,
                   background: theme.palette.gradient.primary,
                   '&:hover': {
                     background: `linear-gradient(135deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.main} 100%)`,
                   }
                 }}
+                title={!canStartProcessing ? 'Please configure a valid output directory to start processing' : ''}
               >
-                {isLoading ? 'Saving...' : 'Save Changes'}
+                {isLoading ? 'Starting...' : 'Save & Start Processing'}
               </Button>
             </Box>
           </Box>

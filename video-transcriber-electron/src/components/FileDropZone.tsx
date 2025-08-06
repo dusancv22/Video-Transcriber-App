@@ -1,5 +1,6 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useState, useEffect } from 'react'
 import { useAppStore } from '../store/appStore'
+import { APIUtils } from '../services/api'
 import {
   Box,
   Typography,
@@ -73,53 +74,16 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAdded }) => {
     e.preventDefault()
     setIsDragOver(false)
 
+    // Note: Native drop handling is now managed by the main process
+    // This React drop handler is kept for UI feedback only
+    // The actual file processing happens via the native postMessage event
+    console.log('📥 React drag-drop event (UI only - native handler will process files)')
+    
     if (isLoading) {
       showNotification('Please wait for the current operation to complete', 'warning')
       return
     }
-
-    try {
-      setIsLoading(true)
-      console.log('Processing dropped files...')
-
-      const droppedFiles = Array.from(e.dataTransfer.files)
-      const validFiles = droppedFiles.filter(file => 
-        file.type.startsWith('video/') || 
-        ['.mp4', '.avi', '.mkv', '.mov'].some(ext => 
-          file.name.toLowerCase().endsWith(ext)
-        )
-      )
-
-      if (validFiles.length === 0) {
-        showNotification('No valid video files found. Please drop MP4, AVI, MKV, or MOV files.', 'warning')
-        return
-      }
-
-      if (validFiles.length < droppedFiles.length) {
-        const skippedCount = droppedFiles.length - validFiles.length
-        showNotification(`${skippedCount} file(s) skipped - only video files are supported`, 'warning')
-      }
-
-      // Convert File objects to file paths for API
-      const filePaths = validFiles.map(file => (file as any).path || file.name)
-      
-      setSelectedFiles(prev => [...prev, ...validFiles])
-      onFilesAdded?.(validFiles)
-      
-      console.log(`Adding ${validFiles.length} files to queue...`)
-      await addFiles(filePaths)
-      
-      showNotification(`Successfully added ${validFiles.length} file(s) to the queue`, 'success')
-      console.log('Files successfully added to queue')
-
-    } catch (error) {
-      console.error('Failed to add dropped files to queue:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-      showNotification(`Failed to add files: ${errorMessage}`, 'error')
-    } finally {
-      setIsLoading(false)
-    }
-  }, [onFilesAdded, addFiles, isLoading, showNotification])
+  }, [isLoading, showNotification])
 
   const handleFileSelect = useCallback(async () => {
     console.log('Browse Files clicked - checking Electron API availability...')
@@ -129,71 +93,114 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAdded }) => {
       return
     }
 
-    if (!window.electronAPI) {
-      console.error('Electron API not available!')
-      showNotification('Desktop features not available. Please restart the application.', 'error')
-      return
-    }
-
-    if (!window.electronAPI.dialog) {
-      console.error('Dialog API not available!')
-      showNotification('File dialog not available. Please check your installation.', 'error')
+    if (!window.electronAPI || !window.electronAPI.file) {
+      console.warn('Electron API not available! Falling back to web file input...')
+      // Create a hidden file input as fallback for web mode
+      const fileInput = document.createElement('input')
+      fileInput.type = 'file'
+      fileInput.multiple = true
+      fileInput.accept = '.mp4,.avi,.mkv,.mov'
+      fileInput.style.display = 'none'
+      
+      fileInput.onchange = async (e) => {
+        const files = Array.from((e.target as HTMLInputElement).files || [])
+        if (files.length > 0) {
+          try {
+            setIsLoading(true)
+            
+            // Filter for video files
+            const validFiles = files.filter(file => 
+              file.type.startsWith('video/') || 
+              ['.mp4', '.avi', '.mkv', '.mov'].some(ext => 
+                file.name.toLowerCase().endsWith(ext)
+              )
+            )
+            
+            if (validFiles.length === 0) {
+              showNotification('No valid video files selected. Please select MP4, AVI, MKV, or MOV files.', 'warning')
+              return
+            }
+            
+            // Use file names as paths since we can't get full paths in web mode
+            // Note: This will cause backend validation errors - web mode limitation
+            const rawPaths = validFiles.map(file => file.name)
+            
+            // Validate and format paths
+            const pathValidation = APIUtils.validateFilePaths(rawPaths)
+            const validPaths = APIUtils.formatFilePaths(pathValidation.valid)
+            
+            if (pathValidation.warnings.length > 0) {
+              console.warn('⚠️ FileDropZone: Web mode path warnings:')
+              pathValidation.warnings.forEach(warning => console.warn(`  - ${warning}`))
+            }
+            
+            if (validPaths.length === 0) {
+              showNotification('No valid file paths could be processed in web mode', 'error')
+              return
+            }
+            
+            setSelectedFiles(prev => [...prev, ...validFiles])
+            
+            console.log(`🚀 FileDropZone: Adding ${validFiles.length} web-selected files to queue...`)
+            console.log('📝 FileDropZone: Calling addFiles from store (web fallback)...')
+            await addFiles(validPaths)
+            console.log('✅ FileDropZone: addFiles call completed successfully (web fallback)')
+            
+            showNotification(`Successfully added ${validFiles.length} file(s) to the queue`, 'success')
+          } catch (error) {
+            console.error('Error processing web file selection:', error)
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+            showNotification(`Failed to add files: ${errorMessage}`, 'error')
+          } finally {
+            setIsLoading(false)
+          }
+        }
+        document.body.removeChild(fileInput)
+      }
+      
+      document.body.appendChild(fileInput)
+      fileInput.click()
       return
     }
 
     try {
       setIsLoading(true)
-      console.log('Opening file dialog...')
+      console.log('Using IPC-based file selection...')
       
-      const result = await window.electronAPI.dialog.showOpenDialog({
-        properties: ['openFile', 'multiSelections'],
-        filters: [
-          { name: 'Video Files', extensions: ['mp4', 'avi', 'mkv', 'mov'] },
-          { name: 'All Files', extensions: ['*'] }
-        ],
-        title: 'Select Video Files to Transcribe'
-      })
+      const rawFilePaths = await window.electronAPI.file.selectVideoFiles()
+      console.log('Selected file paths via IPC:', rawFilePaths)
 
-      console.log('File dialog result:', { canceled: result.canceled, fileCount: result.filePaths?.length || 0 })
-
-      if (result.canceled) {
-        console.log('File selection was canceled by user')
-        showNotification('File selection canceled', 'info')
-        return
-      }
-
-      if (!result.filePaths || result.filePaths.length === 0) {
+      if (!rawFilePaths || rawFilePaths.length === 0) {
         console.log('No files were selected')
-        showNotification('No files were selected', 'warning')
+        showNotification('No files were selected', 'info')
         return
       }
 
-      // Validate file extensions
-      const validFiles = result.filePaths.filter(filePath => {
-        const isValid = ['.mp4', '.avi', '.mkv', '.mov'].some(ext => 
-          filePath.toLowerCase().endsWith(ext)
-        )
-        if (!isValid) {
-          console.warn(`Invalid file type: ${filePath}`)
-        }
-        return isValid
-      })
-
-      if (validFiles.length === 0) {
-        showNotification('No valid video files selected. Please select MP4, AVI, MKV, or MOV files.', 'warning')
-        return
-      }
-
-      if (validFiles.length < result.filePaths.length) {
-        const skippedCount = result.filePaths.length - validFiles.length
-        showNotification(`${skippedCount} file(s) skipped - only video files are supported`, 'warning')
-      }
-
-      console.log(`Adding ${validFiles.length} selected files to queue...`)
-      await addFiles(validFiles)
+      // Validate and format the selected file paths
+      const pathValidation = APIUtils.validateFilePaths(rawFilePaths)
+      const validPaths = APIUtils.formatFilePaths(pathValidation.valid)
       
-      showNotification(`Successfully added ${validFiles.length} file(s) to the queue`, 'success')
-      console.log('Selected files successfully added to queue')
+      if (pathValidation.warnings.length > 0) {
+        console.warn('⚠️ FileDropZone: Browse selection path warnings:')
+        pathValidation.warnings.forEach(warning => console.warn(`  - ${warning}`))
+      }
+      
+      if (pathValidation.invalid.length > 0) {
+        showNotification(`Some selected files had invalid paths: ${pathValidation.invalid.length} files`, 'warning')
+      }
+      
+      if (validPaths.length === 0) {
+        showNotification('No valid file paths found in selection', 'error')
+        return
+      }
+
+      console.log(`🚀 FileDropZone: Adding ${validPaths.length} selected files to queue...`)
+      console.log('📝 FileDropZone: Calling addFiles from store (browse)...')
+      await addFiles(validPaths)
+      console.log('✅ FileDropZone: addFiles call completed successfully (browse)')
+      
+      showNotification(`Successfully added ${validPaths.length} file(s) to the queue`, 'success')
+      console.log('📊 FileDropZone: Selected files successfully processed')
 
     } catch (error) {
       console.error('Error during file selection:', error)
@@ -201,6 +208,84 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAdded }) => {
       showNotification(`Failed to open file browser: ${errorMessage}`, 'error')
     } finally {
       setIsLoading(false)
+    }
+  }, [addFiles, isLoading, showNotification])
+
+  // Listen for native file drop events from the main process
+  useEffect(() => {
+    const handleNativeFileDrop = async (event: MessageEvent) => {
+      if (event.data.type === 'native-file-drop') {
+        const filePaths = event.data.filePaths as string[]
+        console.log('🎯 Received native file drop event with paths:', filePaths)
+        
+        if (isLoading) {
+          showNotification('Please wait for the current operation to complete', 'warning')
+          return
+        }
+
+        try {
+          setIsLoading(true)
+          
+          // Filter for video files by extension
+          const videoExtensions = ['.mp4', '.avi', '.mkv', '.mov']
+          const validFiles = filePaths.filter(path => {
+            const ext = path.toLowerCase().split('.').pop()
+            return ext && videoExtensions.includes(`.${ext}`)
+          })
+
+          console.log(`🔍 Filtered ${validFiles.length} valid video files from ${filePaths.length} dropped files`)
+
+          if (validFiles.length === 0) {
+            showNotification('No valid video files found. Supported formats: MP4, AVI, MKV, MOV', 'warning')
+            return
+          }
+
+          if (validFiles.length < filePaths.length) {
+            const skippedCount = filePaths.length - validFiles.length
+            showNotification(`${skippedCount} file(s) skipped - only video files are supported`, 'warning')
+          }
+
+          // Validate and format the native dropped file paths
+          const pathValidation = APIUtils.validateFilePaths(validFiles)
+          const validPaths = APIUtils.formatFilePaths(pathValidation.valid)
+          
+          if (pathValidation.warnings.length > 0) {
+            console.warn('⚠️ FileDropZone: Native drop path warnings:')
+            pathValidation.warnings.forEach(warning => console.warn(`  - ${warning}`))
+          }
+          
+          if (pathValidation.invalid.length > 0) {
+            showNotification(`Some dropped files had invalid paths: ${pathValidation.invalid.length} files`, 'warning')
+          }
+          
+          if (validPaths.length === 0) {
+            showNotification('No valid file paths found in dropped files', 'error')
+            return
+          }
+
+          console.log(`🚀 FileDropZone: Adding ${validPaths.length} native dropped files to queue...`)
+          console.log('📝 FileDropZone: Validated paths:', validPaths)
+          console.log('📝 FileDropZone: Calling addFiles from store (native drop)...')
+          await addFiles(validPaths)
+          console.log('✅ FileDropZone: addFiles call completed successfully (native drop)')
+          
+          showNotification(`Successfully added ${validPaths.length} file(s) to the queue`, 'success')
+          console.log('🎉 FileDropZone: Native file drop processing completed successfully')
+        } catch (error) {
+          console.error('❌ Error processing native file drop:', error)
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+          showNotification(`Failed to add files: ${errorMessage}`, 'error')
+        } finally {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    console.log('🔧 Setting up native file drop event listener')
+    window.addEventListener('message', handleNativeFileDrop)
+    return () => {
+      console.log('🧹 Cleaning up native file drop event listener')
+      window.removeEventListener('message', handleNativeFileDrop)
     }
   }, [addFiles, isLoading, showNotification])
 
