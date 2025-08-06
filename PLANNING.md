@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-The Video Transcriber App is a desktop application that converts video files into text transcripts using OpenAI's Whisper AI model. Built with PyQt6, the application provides a user-friendly GUI for batch processing video files with real-time progress tracking, queue management, and comprehensive error handling. The app is designed for users who need to transcribe multiple video files efficiently with professional-grade accuracy.
+The Video Transcriber App is a modern hybrid desktop application that converts video files into text transcripts using OpenAI's Whisper AI model. Built with Electron, React, and FastAPI, the application provides a modern web-based interface wrapped in a desktop shell for batch processing video files with real-time progress tracking, queue management, and comprehensive error handling. The app is designed for users who need to transcribe multiple video files efficiently with professional-grade accuracy.
 
 ### Key Goals
 - Convert video files (MP4, AVI, MKV, MOV) to accurate text transcripts
@@ -14,26 +14,36 @@ The Video Transcriber App is a desktop application that converts video files int
 
 ## Technology Stack
 
-### Core Technologies
+### Frontend Technologies
+- **Desktop Shell:** Electron - Cross-platform desktop wrapper
+- **Framework:** React 18 - Modern component-based UI framework
+- **Language:** TypeScript - Type-safe JavaScript development
+- **UI Library:** Material-UI v5 - Comprehensive React components
+- **State Management:** Zustand - Lightweight state management
+- **Build Tool:** Vite - Fast development server and bundler
+
+### Backend Technologies
 - **Language:** Python 3.8+
-- **GUI Framework:** PyQt6 (6.7.0+) - Modern desktop interface
+- **API Framework:** FastAPI - Modern async web framework
 - **AI/ML:** OpenAI Whisper (via faster-whisper 0.10.0+) - Speech-to-text transcription
 - **Audio Processing:** MoviePy - Video to audio conversion and manipulation
 - **Deep Learning:** PyTorch (2.2.0+) - GPU acceleration support
-- **Build Tools:** PyInstaller (6.5.0+) - Executable generation
+- **WebSocket:** FastAPI WebSocket support for real-time communication
 
 ### Development Tools
-- **Package Management:** pip with requirements.txt
-- **Testing:** pytest for unit testing
+- **Frontend Package Manager:** npm - Node.js package management
+- **Backend Package Manager:** pip with requirements.txt
+- **Testing:** pytest (Python), Jest (JavaScript)
 - **Logging:** Python's built-in logging module
-- **Virtual Environment:** venv for dependency isolation
+- **Virtual Environment:** venv for Python dependency isolation
 - **Version Control:** Git with structured branching
 
 ### Dependencies
 - **Media Processing:** ffmpeg-python (0.2.0) - Video/audio format handling
 - **Numerical Computing:** numpy (1.24.0+) - Array operations
-- **GUI Components:** PyQt6 widgets for modern UI elements
+- **HTTP Client:** Axios - Frontend API communication
 - **Hardware Acceleration:** CUDA support for GPU processing
+- **Cross-Platform:** Electron Builder - Multi-platform packaging
 
 ## User Personas
 
@@ -67,7 +77,7 @@ The Video Transcriber App is a desktop application that converts video files int
 - **Video File Input Processing:** Multi-format support (MP4, AVI, MKV, MOV) with validation and queue management. Handles individual files and entire directories with recursive scanning. *(Added 2025-01-08)*
 - **Audio Conversion Pipeline:** Intelligent video-to-audio conversion using MoviePy with automatic file splitting for large files (>25MB). Supports temporary file management and cleanup. *(Added 2025-01-08)*
 - **Whisper AI Integration:** Advanced speech-to-text using faster-whisper with large model support. Forced English language processing for consistency. GPU acceleration support when available. *(Added 2025-01-08)*
-- **Professional GUI Interface:** Modern PyQt6 interface with drag-and-drop support, real-time progress tracking, and comprehensive status reporting. Includes pause/resume functionality. *(Added 2025-01-08)*
+- **Modern Web Interface:** React-based Material-UI interface with drag-and-drop support, real-time progress tracking via WebSocket, and comprehensive status reporting. Includes pause/resume functionality. *(Converted 2025-01-08)*
 - **Queue Management System:** Thread-safe queue with status tracking (queued, processing, completed, failed). Supports concurrent processing with proper synchronization. *(Added 2025-01-08)*
 - **Progress Tracking & Time Estimation:** Real-time progress bars with ETA calculations based on historical processing times. Visual status indicators for each file. *(Added 2025-01-08)*
 - **Text Post-Processing:** Advanced text formatting with sentence detection, capitalization correction, and punctuation normalization. Handles long texts through chunking. *(Added 2025-01-08)*
@@ -75,9 +85,27 @@ The Video Transcriber App is a desktop application that converts video files int
 - **Multi-Threading Architecture:** Worker thread implementation prevents UI freezing during processing. Proper thread cleanup and resource management. *(Added 2025-01-08)*
 - **Output Management:** Configurable output directories with structured file naming. UTF-8 encoded text files for international character support. *(Added 2025-01-08)*
 
+### Recently Completed Features
+- **Hybrid Architecture Migration:** Successfully converted from PyQt6 to Electron + React + FastAPI architecture
+  *(Status 2025-01-08: UI modernization complete, API integration complete, WebSocket communication functional)*
+- **Real-time Communication:** WebSocket integration for live progress updates and status reporting
+  *(Status 2025-01-08: Full implementation complete with bidirectional communication)*
+- **RESTful API Layer:** Comprehensive FastAPI backend exposing all transcription functionality
+  *(Status 2025-01-08: Complete API coverage with proper error handling)*
+
 ### In-Progress Features
 - **Enhanced Language Detection:** While currently forced to English, the system includes infrastructure for language detection and multi-language support
   *(Status 2025-01-08: Language detection code present but disabled in favor of English-only processing)*
+- **Production Build Optimization:** Finalizing Electron packaging and distribution setup
+  *(Status 2025-01-08: Development environment complete, production builds in testing)*
+
+### Enhanced by New Architecture
+- **Real-time Progress:** WebSocket-based live updates eliminate UI polling and provide instant feedback
+- **Modern Interface:** Material-UI components provide consistent, accessible, and responsive design
+- **Cross-platform Support:** Electron enables native desktop features across Windows, macOS, and Linux
+- **Scalable Communication:** RESTful API design allows future mobile or web client development
+- **Improved Error Handling:** Structured API responses with detailed error information and user guidance
+- **Development Experience:** Hot reload, TypeScript safety, and modern tooling for faster iteration
 
 ### Planned Features
 - **Batch Export Options:** Support for multiple output formats (TXT, SRT, VTT, DOCX)
@@ -86,34 +114,49 @@ The Video Transcriber App is a desktop application that converts video files int
 - **Transcription Accuracy Metrics:** Confidence scores and quality indicators
 - **Configuration Management:** User preferences for model settings, output formats, and processing options
 - **Plugin Architecture:** Extensible system for custom post-processing and export plugins
+- **API Extensions:** External integrations and third-party tool connectivity
 
 ## Architecture
 
-### System Architecture
-The application follows a modular, layered architecture with clear separation of concerns:
+### Hybrid System Architecture
+The application follows a modern hybrid architecture with clear separation between frontend and backend concerns:
 
-**Presentation Layer (UI):**
-- PyQt6-based main window with modern styling
-- Real-time progress widgets and status reporting
-- Queue management interface with visual file status
-- Worker thread integration for non-blocking operations
+**Frontend Layer (Electron + React):**
+- Electron desktop shell for cross-platform native capabilities
+- React 18 components with TypeScript for type safety
+- Material-UI v5 for consistent, modern design system
+- Zustand state management for predictable state updates
+- Real-time WebSocket client for live progress updates
+- RESTful API client using Axios for backend communication
 
-**Business Logic Layer:**
+**API Communication Layer:**
+- RESTful endpoints for all transcription operations
+- WebSocket connection for real-time progress streaming
+- JSON data format for structured request/response handling
+- Error handling and retry logic for network resilience
+- Authentication tokens for secure API access
+
+**Backend Layer (FastAPI + Python):**
+- FastAPI async web framework for high-performance API
+- WebSocket support for real-time bidirectional communication
+- Preserved existing Python transcription pipeline
 - TranscriptionPipeline: Orchestrates the complete processing workflow
 - QueueManager: Thread-safe queue operations and status tracking
 - WhisperManager: AI model management and transcription coordination
 - TextProcessor: Post-processing and formatting operations
 
-**Data Processing Layer:**
+**Data Processing Layer (Preserved):**
 - AudioConverter: Video-to-audio conversion and file management
 - File handlers: Input validation and format verification
-- Progress tracking: Real-time status updates and time estimation
+- Progress tracking: Real-time status updates via WebSocket
+- Temporary file management and cleanup
 
 **Infrastructure Layer:**
 - Logging system with configurable levels
 - Error handling and recovery mechanisms
-- Temporary file management and cleanup
+- Cross-origin resource sharing (CORS) configuration
 - Threading and synchronization primitives
+- Process management for backend services
 
 ### Database Schema
 **File-based system** - No traditional database. State managed through:
@@ -122,18 +165,47 @@ The application follows a modular, layered architecture with clear separation of
 - Temporary audio files in structured directories
 - Configuration stored in object properties
 
-### Processing Pipeline
-1. **File Input & Validation:** User selects files/directories → File format validation → Queue population
-2. **Audio Conversion:** Video loading → Audio extraction → File size checking → Splitting if needed (>25MB)
-3. **AI Transcription:** Whisper model loading → Segment processing → Text generation → Language detection
-4. **Post-Processing:** Text chunking → Formatting enhancement → Sentence structure correction
-5. **Output Generation:** File writing → Cleanup → Status reporting
+### Hybrid Architecture Flow
+**Frontend to Backend Communication:**
+1. **User Interaction:** React components handle user input (file selection, queue management)
+2. **API Requests:** Axios client sends HTTP requests to FastAPI backend
+3. **Real-time Updates:** WebSocket connection streams live progress data
+4. **State Management:** Zustand store updates trigger component re-renders
+
+**Backend Processing Pipeline:**
+1. **API Endpoints:** FastAPI receives requests and validates input data
+2. **Queue Management:** Thread-safe queue operations via existing Python pipeline
+3. **File Processing:** Preserved transcription pipeline (conversion → transcription → post-processing)
+4. **Progress Streaming:** WebSocket broadcasts real-time status updates
+5. **Response Handling:** JSON responses with error handling and status codes
+
+**Data Flow Architecture:**
+```
+Electron Shell
+├── React Frontend (Port 5173)
+│   ├── Material-UI Components
+│   ├── Zustand State Store
+│   ├── Axios API Client
+│   └── WebSocket Client
+│
+└── FastAPI Backend (Port 8000)
+    ├── REST API Endpoints
+    ├── WebSocket Server
+    ├── Existing Python Pipeline
+    │   ├── TranscriptionPipeline
+    │   ├── QueueManager
+    │   ├── WhisperManager
+    │   └── TextProcessor
+    └── Audio Processing Layer
+```
 
 ### State Management
-- **Queue State:** Thread-safe QueueManager with atomic operations
-- **Progress State:** Real-time updates via PyQt signals and slots
-- **UI State:** Reactive interface updates based on processing status
-- **File State:** Temporary file tracking with automatic cleanup
+- **Frontend State:** Zustand store for UI state, queue status, and user preferences
+- **Queue State:** Thread-safe QueueManager with atomic operations (backend)
+- **Progress State:** Real-time updates via WebSocket streaming
+- **UI State:** Reactive React components with automatic re-rendering
+- **API State:** Axios interceptors for request/response handling
+- **File State:** Temporary file tracking with automatic cleanup (backend)
 
 ## Authentication System
 **Not applicable** - Desktop application with local file access only. No user authentication or network services required.
@@ -141,10 +213,12 @@ The application follows a modular, layered architecture with clear separation of
 ## UI/UX Patterns
 
 ### Visual Design Principles
-- **Modern Flat Design:** Clean buttons with hover effects and professional color scheme
-- **Status-Driven UI:** Visual indicators for queue item states (⏳ queued, 🔄 processing, ✓ completed, ❌ failed)
-- **Progressive Disclosure:** Hide advanced options until needed (progress section appears during processing)
-- **Responsive Feedback:** Immediate visual feedback for all user actions
+- **Material Design:** Google's Material-UI components with consistent design language
+- **Modern Interface:** Clean typography, proper spacing, and professional color palette
+- **Status-Driven UI:** Visual indicators for queue item states with Material icons and colors
+- **Progressive Disclosure:** Collapsible sections and conditional rendering based on state
+- **Responsive Design:** Adaptive layout for different window sizes and screen densities
+- **Real-time Feedback:** Live progress indicators updated via WebSocket
 
 ### Interaction Patterns
 - **Drag & Drop Support:** Primary file input method for intuitive operation
@@ -154,11 +228,12 @@ The application follows a modular, layered architecture with clear separation of
 - **Error Recovery:** Clear error messages with actionable guidance
 
 ### Color Coding System
-- **Blue (#2563eb):** Primary actions (Add Files, Add Directory)
-- **Gray (#4b5563):** Secondary actions (Output Directory)
-- **Red (#dc2626):** Destructive actions (Clear Queue)
-- **Green (#16a34a):** Success states and primary processing action
-- **Yellow (#eab308):** Warning states and pause functionality
+- **Material Primary:** Primary actions and brand elements (Material-UI theme)
+- **Material Secondary:** Secondary actions and supporting elements
+- **Success Green:** Completed transcriptions and success states
+- **Error Red:** Failed operations and destructive actions
+- **Warning Orange:** Pause states and cautionary actions
+- **Info Blue:** Processing states and informational elements
 
 ## Business Rules
 
@@ -241,39 +316,85 @@ tests/
     └── test_file_handler.py
 ```
 
+## Setup Instructions
+
+### Prerequisites
+- **Python:** 3.8+ with pip package manager
+- **Node.js:** 16+ with npm package manager
+- **System Dependencies:** FFmpeg for audio processing
+
+### Development Setup
+1. **Backend Setup:**
+   ```bash
+   python -m venv venv
+   venv\Scripts\activate  # Windows
+   # or
+   source venv/bin/activate  # macOS/Linux
+   pip install -r requirements.txt
+   ```
+
+2. **Frontend Setup:**
+   ```bash
+   npm install
+   ```
+
+3. **Start Development Servers:**
+   ```bash
+   # Terminal 1: Start FastAPI backend
+   python backend/main.py
+   
+   # Terminal 2: Start React development server
+   npm run dev
+   ```
+
+### Detailed Documentation
+- **START_INSTRUCTIONS.md:** Complete setup and development guide
+- **TESTING_GUIDE.md:** Testing procedures and validation steps
+- **CLAUDE.md:** Project overview and architecture context
+
 ## Deployment
 
 ### Distribution Method
-- **Standalone Executable:** PyInstaller builds for Windows distribution
-- **Dependencies Bundled:** All required libraries packaged in executable
-- **No Installation Required:** Portable application with minimal system requirements
+- **Electron App:** Cross-platform desktop application (Windows, macOS, Linux)
+- **Hybrid Architecture:** Frontend assets bundled with Electron, Python backend as subprocess
+- **Dependencies Bundled:** All Node.js and Python dependencies packaged
+- **Native Installation:** Standard OS-specific installers (.exe, .dmg, .deb/.rpm)
 
 ### System Requirements
-- **Operating System:** Windows (primary), with potential for cross-platform support
-- **Python Runtime:** 3.8+ (bundled in executable)
+- **Operating System:** Cross-platform (Windows, macOS, Linux)
+- **Node.js Runtime:** Bundled with Electron
+- **Python Runtime:** 3.8+ (bundled with application)
 - **Hardware:** Minimum 8GB RAM, GPU recommended for faster processing
 - **Storage:** Adequate space for temporary audio files during processing
+- **Network:** Required for initial setup and updates (offline capable after setup)
 
 ### Build Process
 ```bash
-# Create virtual environment
+# Backend setup
 python -m venv venv
 venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
 
-# Build executable
-pyinstaller --onefile --windowed run.py
+# Frontend setup
+npm install
+
+# Development
+npm run dev          # Start frontend development server
+python backend/main.py  # Start FastAPI backend
+
+# Production build
+npm run build        # Build React app
+npm run electron:build  # Package Electron app
 ```
 
 ## Constraints & Non-Goals
 
 ### Technical Constraints
-- **Desktop Only:** No web interface or mobile support planned
+- **Desktop Application:** Electron-based desktop app with web technologies
 - **English Language:** Currently optimized for English transcription only
 - **Local Processing:** No cloud services or remote processing
 - **Single User:** No multi-user or collaborative features
+- **Hybrid Architecture:** Requires both Node.js and Python runtime environments
 
 ### Scope Limitations
 - **Real-time Transcription:** Not designed for live audio processing
@@ -314,5 +435,5 @@ pyinstaller --onefile --windowed run.py
 ---
 
 *Last Updated: 2025-01-08*
-*Current Branch: Stage-5---Fixing-Bugs*
-*Recent Focus: Bug fixes and stability improvements following UI completion*
+*Current Branch: fix-transcript-repetition-bug*
+*Recent Focus: Hybrid architecture migration complete - Electron + React + FastAPI implementation functional with WebSocket real-time communication*
