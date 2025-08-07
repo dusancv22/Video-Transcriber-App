@@ -292,7 +292,7 @@ const FileDropZone: React.FC<FileDropZoneProps> = ({ onFilesAdded }) => {
   const supportedFormats = ['MP4', 'AVI', 'MKV', 'MOV']
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', p: 1 }}>
       {/* Drop Zone */}
       <Box
         className={`drop-zone ${isDragOver ? 'drag-over' : ''}`}

@@ -16,7 +16,6 @@ import {
   PlayArrow,
   Pause,
   Stop,
-  Settings,
   FolderOpen,
   Clear,
   Queue as QueueIcon,
@@ -29,8 +28,8 @@ import {
 import FileDropZone from './FileDropZone'
 import QueuePanel from './QueuePanel'
 import StatusBar from './StatusBar'
-import SettingsDialog from './SettingsDialog'
-import SettingsStatusPanel from './SettingsStatusPanel'
+import SettingsPanel from './SettingsPanel'
+// import ProgressSection from './ProgressSection' // Removed per user request
 import FirstRunWelcome from './FirstRunWelcome'
 import { useAppStore } from '../store/appStore'
 
@@ -38,7 +37,6 @@ const MainWindow: React.FC = () => {
   const theme = useTheme()
   
   // Local state for dialogs
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [firstRunOpen, setFirstRunOpen] = useState(false)
   
   // Get state and actions from store
@@ -98,8 +96,9 @@ const MainWindow: React.FC = () => {
   const isPaused = processingStatus?.is_paused || false
 
   const handleStart = async () => {
-    // Open settings dialog first to allow user to configure options
-    setSettingsOpen(true)
+    // Processing is now handled directly by SettingsPanel
+    // This button is no longer needed as settings are always visible
+    console.log('Start button clicked - processing handled by settings panel')
   }
 
   const handlePause = async () => {
@@ -142,13 +141,6 @@ const MainWindow: React.FC = () => {
     }
   }
 
-  const handleOpenSettings = () => {
-    setSettingsOpen(true)
-  }
-
-  const handleCloseSettings = () => {
-    setSettingsOpen(false)
-  }
 
   const handleCloseFirstRun = () => {
     setFirstRunOpen(false)
@@ -158,7 +150,7 @@ const MainWindow: React.FC = () => {
 
   const handleFirstRunOpenSettings = () => {
     handleCloseFirstRun()
-    setSettingsOpen(true)
+    // Settings are now always visible in the panel
   }
 
   // Window control handlers
@@ -190,18 +182,6 @@ const MainWindow: React.FC = () => {
     }
   }, [error, setError])
 
-  // Keyboard shortcut for settings (Ctrl+, or Cmd+,)
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === ',') {
-        event.preventDefault()
-        handleOpenSettings()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -296,153 +276,79 @@ const MainWindow: React.FC = () => {
               <Clear />
             </IconButton>
             
-            <IconButton
-              onClick={handleOpenSettings}
-              sx={{ 
-                color: 'white',
-                '&:hover': {
-                  backgroundColor: alpha(theme.palette.common.white, 0.1)
-                }
-              }}
-              size="small"
-              aria-label="Open settings"
-              title="Settings (Ctrl+,)"
-            >
-              <Settings />
-            </IconButton>
             
-            {/* Window Controls */}
-            <Box sx={{ ml: 2, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <IconButton
-                onClick={handleWindowMinimize}
-                sx={{ 
-                  color: 'white',
-                  width: 32,
-                  height: 32,
-                  '&:hover': {
-                    backgroundColor: alpha(theme.palette.common.white, 0.1)
-                  }
-                }}
-                size="small"
-                aria-label="Minimize window"
-                title="Minimize"
-              >
-                <Minimize sx={{ fontSize: 16 }} />
-              </IconButton>
-              
-              <IconButton
-                onClick={handleWindowMaximize}
-                sx={{ 
-                  color: 'white',
-                  width: 32,
-                  height: 32,
-                  '&:hover': {
-                    backgroundColor: alpha(theme.palette.common.white, 0.1)
-                  }
-                }}
-                size="small"
-                aria-label="Maximize window"
-                title="Maximize/Restore"
-              >
-                <CropSquare sx={{ fontSize: 14 }} />
-              </IconButton>
-              
-              <IconButton
-                onClick={handleWindowClose}
-                sx={{ 
-                  color: 'white',
-                  width: 32,
-                  height: 32,
-                  '&:hover': {
-                    backgroundColor: '#e53e3e'
-                  }
-                }}
-                size="small"
-                aria-label="Close window"
-                title="Close"
-              >
-                <Close sx={{ fontSize: 16 }} />
-              </IconButton>
-            </Box>
           </Box>
         </Toolbar>
       </AppBar>
 
       {/* Main Content */}
-      <Container maxWidth={false} sx={{ flexGrow: 1, py: 2, px: 2 }}>
-        <Grid container spacing={2} sx={{ height: '100%' }}>
+      <Container maxWidth={false} sx={{ flexGrow: 1, py: 2, px: 2, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+        {/* Top Section - File Drop Zone and Queue */}
+        <Grid container spacing={2} sx={{ minHeight: '250px', maxHeight: '35%', mb: 2 }}>
           {/* Left Panel - File Drop Zone */}
           <Grid item xs={12} md={5}>
             <Paper 
               elevation={1}
               sx={{ 
                 height: '100%', 
+                minHeight: '250px',
                 display: 'flex', 
                 flexDirection: 'column',
-                background: theme.palette.background.elevation1
+                background: theme.palette.background.elevation1,
+                p: 2,
+                overflow: 'auto'
               }}
             >
-              <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <FolderOpen color="primary" />
-                  Add Files
-                </Typography>
-              </Box>
-              
-              <Box sx={{ flexGrow: 1, p: 2 }}>
-                <FileDropZone />
-              </Box>
+              <FileDropZone />
             </Paper>
           </Grid>
 
-          {/* Right Panel - Queue, Settings, and Progress */}
+          {/* Right Panel - Queue */}
           <Grid item xs={12} md={7}>
-            <Grid container spacing={2} sx={{ height: '100%' }}>
-              {/* Queue Panel */}
-              <Grid item xs={12} sx={{ height: '60%' }}>
-                <Paper 
-                  elevation={1}
-                  sx={{ 
-                    height: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    background: theme.palette.background.elevation1
-                  }}
-                >
-                  <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                    <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <QueueIcon color="primary" />
-                      Processing Queue
-                    </Typography>
-                  </Box>
-                  
-                  <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
-                    <QueuePanel />
-                  </Box>
-                </Paper>
-              </Grid>
-
-              {/* Settings Status Panel */}
-              <Grid item xs={12} sx={{ height: '40%' }}>
-                <SettingsStatusPanel onOpenSettings={handleOpenSettings} />
-              </Grid>
-            </Grid>
+            <Paper 
+              elevation={1}
+              sx={{ 
+                height: '100%',
+                minHeight: '250px',
+                display: 'flex',
+                flexDirection: 'column',
+                background: theme.palette.background.elevation1,
+                overflow: 'auto'
+              }}
+            >
+              <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}`, flexShrink: 0 }}>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <QueueIcon color="primary" />
+                  Processing Queue
+                </Typography>
+              </Box>
+              
+              <Box sx={{ flexGrow: 1, overflow: 'auto', minHeight: 0 }}>
+                <QueuePanel />
+              </Box>
+            </Paper>
           </Grid>
         </Grid>
+
+        {/* Bottom Section - Settings Panel (Full Width) */}
+        <Paper 
+          elevation={1}
+          sx={{ 
+            flexGrow: 1,
+            minHeight: '400px',
+            display: 'flex',
+            flexDirection: 'column',
+            background: theme.palette.background.elevation1,
+            overflow: 'auto'
+          }}
+        >
+          <SettingsPanel />
+        </Paper>
       </Container>
 
       {/* Status Bar */}
       <StatusBar />
       
-      {/* Settings Dialog */}
-      <SettingsDialog 
-        open={settingsOpen} 
-        onClose={handleCloseSettings}
-        onSaveAndStart={() => {
-          // Optional callback when processing starts from settings
-          console.log('Processing started from settings dialog')
-        }}
-      />
 
       {/* First Run Welcome Dialog */}
       <FirstRunWelcome

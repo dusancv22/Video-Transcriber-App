@@ -17,32 +17,48 @@ import {
   Assessment,
   CheckCircle
 } from '@mui/icons-material'
+import { useAppStore } from '../store/appStore'
 
 interface ProgressSectionProps {
   isProcessing: boolean
   isPaused: boolean
 }
 
-// Mock session data for development
-const mockSession = {
-  id: 'session-123',
-  started_at: '2025-01-06T10:00:00Z',
-  total_files: 8,
-  completed_files: 3,
-  failed_files: 1,
-  total_processing_time: 420, // 7 minutes
-  average_time_per_file: 140, // ~2.3 minutes
-  output_directory: 'C:/Output/',
-  is_paused: false
-}
-
 const ProgressSection: React.FC<ProgressSectionProps> = ({ isProcessing, isPaused }) => {
   const theme = useTheme()
 
-  // Mock current processing stats
-  const currentProgress = 65 // Overall progress percentage
-  const estimatedTimeRemaining = 315 // 5.25 minutes remaining
-  const processingSpeed = 2.3 // files per hour
+  // Get real data from store
+  const currentSession = useAppStore(state => state.currentSession)
+  const queueStats = useAppStore(state => state.queueStats)
+  const processingStatus = useAppStore(state => state.processingStatus)
+  
+  // Calculate real progress data
+  const totalFiles = queueStats.total
+  const completedFiles = queueStats.completed
+  const currentProcessingFile = processingStatus?.current_file || null
+  
+  // Debug logging for session state
+  console.log('📊 ProgressSection: currentSession:', currentSession)
+  console.log('📊 ProgressSection: isProcessing:', isProcessing)
+  console.log('📊 ProgressSection: queueStats:', queueStats)
+  
+  // Calculate overall progress percentage with better handling for different states
+  const currentProgress = totalFiles > 0 ? Math.round((completedFiles / totalFiles) * 100) : 0
+  
+  // If processing, add partial progress for current file
+  const adjustedProgress = isProcessing && currentProcessingFile && totalFiles > 0
+    ? Math.round(((completedFiles + (currentProcessingFile.progress / 100)) / totalFiles) * 100)
+    : currentProgress
+  
+  // Calculate processing speed (files per hour) based on session data or fallback to basic calculation
+  const processingSpeed = currentSession && currentSession.total_processing_time > 0 
+    ? Math.round((currentSession.completed_files / (currentSession.total_processing_time / 3600)) * 10) / 10 
+    : (isProcessing && completedFiles > 0 ? 0.5 : 0) // Fallback speed when no session data
+  
+  // Estimate remaining time based on current speed and remaining files
+  const remainingFiles = totalFiles - completedFiles
+  const averageTimePerFile = currentSession?.average_time_per_file || (isProcessing ? 120 : 0) // 2 minutes default per file
+  const estimatedTimeRemaining = remainingFiles * averageTimePerFile
 
   const formatTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600)
@@ -106,13 +122,20 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({ isProcessing, isPause
                 Overall Progress
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                {currentProgress}%
+                {adjustedProgress}%
               </Typography>
             </Box>
             
+            {/* Show session status for debugging */}
+            {!currentSession && (
+              <Typography variant="caption" color="warning.main" sx={{ display: 'block', mb: 1 }}>
+                Session initializing... Progress based on queue status.
+              </Typography>
+            )}
+            
             <LinearProgress
               variant="determinate"
-              value={currentProgress}
+              value={adjustedProgress}
               sx={{
                 height: 8,
                 borderRadius: 4,
@@ -126,7 +149,7 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({ isProcessing, isPause
             
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
               <Typography variant="caption" color="textSecondary">
-                {mockSession.completed_files} of {mockSession.total_files} files completed
+                {completedFiles} of {totalFiles} files completed
               </Typography>
               <Typography variant="caption" color="textSecondary">
                 ~{formatTime(estimatedTimeRemaining)} remaining
@@ -149,7 +172,7 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({ isProcessing, isPause
                   <CheckCircle sx={{ color: theme.palette.success.main, fontSize: 20 }} />
                   <Box>
                     <Typography variant="h6" color="success.main">
-                      {mockSession.completed_files}
+                      {completedFiles}
                     </Typography>
                     <Typography variant="caption" color="textSecondary">
                       Completed
@@ -195,7 +218,7 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({ isProcessing, isPause
                   <Schedule sx={{ color: theme.palette.primary.main, fontSize: 20 }} />
                   <Box>
                     <Typography variant="h6" color="primary.main">
-                      {formatTime(mockSession.total_processing_time)}
+                      {formatTime(currentSession?.total_processing_time || 0)}
                     </Typography>
                     <Typography variant="caption" color="textSecondary">
                       Total Time
@@ -218,7 +241,7 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({ isProcessing, isPause
                   <Schedule sx={{ color: theme.palette.secondary.main, fontSize: 20 }} />
                   <Box>
                     <Typography variant="h6" color="secondary.main">
-                      {formatTime(mockSession.average_time_per_file)}
+                      {formatTime(currentSession?.average_time_per_file || 0)}
                     </Typography>
                     <Typography variant="caption" color="textSecondary">
                       Avg/File
@@ -252,7 +275,8 @@ const ProgressSection: React.FC<ProgressSectionProps> = ({ isProcessing, isPause
                 {currentProcessingFile.file_path.split(/[\\\/]/).pop() || currentProcessingFile.file_path}
               </Typography>
               <Typography variant="caption" color="textSecondary">
-                {currentProcessingFile.current_step || 'Processing'} • {Math.round(currentProcessingFile.progress || 0)}% complete
+                {currentProcessingFile.step || 'Processing'} • {Math.round(currentProcessingFile.progress || 0)}% complete
+                {currentProcessingFile.estimated_time_remaining > 0 && ` • ~${formatTime(currentProcessingFile.estimated_time_remaining)} remaining`}
               </Typography>
               
               {/* Individual file progress bar */}

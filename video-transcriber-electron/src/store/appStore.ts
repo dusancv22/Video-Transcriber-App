@@ -342,10 +342,41 @@ export const useAppStore = create<AppStore>()(
                   status: 'processing' // Ensure status is set to processing during progress updates
                 })
                 console.log(`📈 WebSocket: Progress update for ${progressEvent.file_id}: ${progressEvent.progress}% - ${progressEvent.step}`)
+                
+                // Update current session with real-time progress info
+                const currentSession = get().currentSession
+                if (currentSession) {
+                  const updatedSession = {
+                    ...currentSession,
+                    total_processing_time: (Date.now() - new Date(currentSession.started_at).getTime()) / 1000
+                  }
+                  get().setCurrentSession(updatedSession)
+                }
               }
               break
               
             case 'processing_status_change':
+              const statusChangeEvent = event as any
+              console.log('🔄 WebSocket: Processing status change:', statusChangeEvent)
+              
+              // Handle status change and initialize session if needed
+              if (statusChangeEvent.status === 'started' && statusChangeEvent.session_id) {
+                // Initialize currentSession when processing starts
+                const newSession: ProcessingSession = {
+                  id: statusChangeEvent.session_id,
+                  started_at: event.timestamp,
+                  total_files: statusChangeEvent.total_files || get().queueStats.total,
+                  completed_files: 0,
+                  failed_files: 0,
+                  total_processing_time: 0,
+                  average_time_per_file: 0,
+                  output_directory: get().processingOptions.output_directory,
+                  is_paused: false
+                }
+                console.log('📋 WebSocket: Initializing new processing session:', newSession)
+                get().setCurrentSession(newSession)
+              }
+              
               // Debounce processing status updates as well
               queueUpdateManager.debounceFetchQueue(async () => {
                 await get().fetchProcessingStatus()
@@ -365,6 +396,22 @@ export const useAppStore = create<AppStore>()(
                   estimated_time_remaining: 0
                 })
                 console.log(`✅ WebSocket: File completed - ${completedEvent.file_id}`)
+                
+                // Update current session stats for completed file
+                const currentSession = get().currentSession
+                if (currentSession) {
+                  const newCompletedCount = currentSession.completed_files + 1
+                  const totalTime = (Date.now() - new Date(currentSession.started_at).getTime()) / 1000
+                  const updatedSession = {
+                    ...currentSession,
+                    completed_files: newCompletedCount,
+                    total_processing_time: totalTime,
+                    average_time_per_file: newCompletedCount > 0 ? totalTime / newCompletedCount : 0
+                  }
+                  console.log('📊 WebSocket: Updated session with completed file:', updatedSession)
+                  get().setCurrentSession(updatedSession)
+                }
+                
                 // Also update queue stats immediately for visual feedback
                 queueUpdateManager.debounceFetchQueue(async () => {
                   await get().fetchQueueInternal(true)
@@ -385,6 +432,18 @@ export const useAppStore = create<AppStore>()(
                   estimated_time_remaining: 0
                 })
                 console.log(`❌ WebSocket: File failed - ${failedEvent.file_id}: ${failedEvent.error}`)
+                
+                // Update current session stats for failed file
+                const currentSession = get().currentSession
+                if (currentSession) {
+                  const updatedSession = {
+                    ...currentSession,
+                    failed_files: currentSession.failed_files + 1,
+                    total_processing_time: (Date.now() - new Date(currentSession.started_at).getTime()) / 1000
+                  }
+                  console.log('📊 WebSocket: Updated session with failed file:', updatedSession)
+                  get().setCurrentSession(updatedSession)
+                }
               }
               break
               
@@ -393,15 +452,64 @@ export const useAppStore = create<AppStore>()(
               const overallEvent = event as any
               if (overallEvent.processed_files !== undefined && overallEvent.total_files !== undefined) {
                 // Update session progress if we have a current session
-                const currentSession = get().currentSession
-                if (currentSession) {
-                  get().setCurrentSession({
+                let currentSession = get().currentSession
+                
+                // Initialize session if it doesn't exist but we're getting overall progress
+                if (!currentSession && overallEvent.total_files > 0) {
+                  console.log('📋 WebSocket: Initializing session from overall progress update')
+                  currentSession = {
+                    id: 'session_' + Date.now(),
+                    started_at: event.timestamp,
+                    total_files: overallEvent.total_files,
+                    completed_files: overallEvent.processed_files,
+                    failed_files: 0,
+                    total_processing_time: 0,
+                    average_time_per_file: 0,
+                    output_directory: get().processingOptions.output_directory,
+                    is_paused: false
+                  }
+                  get().setCurrentSession(currentSession)
+                } else if (currentSession) {
+                  const updatedSession = {
                     ...currentSession,
                     completed_files: overallEvent.processed_files,
-                    total_files: overallEvent.total_files
-                  })
+                    total_files: overallEvent.total_files,
+                    total_processing_time: (Date.now() - new Date(currentSession.started_at).getTime()) / 1000
+                  }
+                  // Calculate average time per file
+                  if (updatedSession.completed_files > 0) {
+                    updatedSession.average_time_per_file = updatedSession.total_processing_time / updatedSession.completed_files
+                  }
+                  get().setCurrentSession(updatedSession)
                 }
                 console.log(`📊 WebSocket: Overall progress ${overallEvent.processed_files}/${overallEvent.total_files} files (${overallEvent.overall_progress}%)`)
+              }
+              break
+              
+            case 'session_complete':
+              const sessionCompleteEvent = event as any
+              console.log('🎉 WebSocket: Session complete:', sessionCompleteEvent)
+              // Update final session stats and then clear it after a delay
+              if (sessionCompleteEvent.session_id) {
+                const finalSession: ProcessingSession = {
+                  id: sessionCompleteEvent.session_id,
+                  started_at: get().currentSession?.started_at || event.timestamp,
+                  completed_at: event.timestamp,
+                  total_files: sessionCompleteEvent.total_files,
+                  completed_files: sessionCompleteEvent.completed_files,
+                  failed_files: sessionCompleteEvent.failed_files,
+                  total_processing_time: sessionCompleteEvent.total_processing_time,
+                  average_time_per_file: sessionCompleteEvent.average_time_per_file,
+                  output_directory: sessionCompleteEvent.output_directory || get().processingOptions.output_directory,
+                  is_paused: false
+                }
+                get().setCurrentSession(finalSession)
+                
+                // Clear session after showing final stats for 5 seconds
+                setTimeout(() => {
+                  console.log('🧹 WebSocket: Clearing completed session')
+                  get().setCurrentSession(null)
+                }, 5000)
               }
               break
           }
@@ -673,8 +781,24 @@ export const useAppStore = create<AppStore>()(
             const result = await VideoTranscriberAPI.startProcessing(options)
             console.log('✅ API call successful:', result)
             
-            console.log('📡 Status will be updated via WebSocket event')
-            // Status will be updated via WebSocket event
+            // Initialize processing session immediately after successful API call
+            if (result.session_id) {
+              const newSession: ProcessingSession = {
+                id: result.session_id,
+                started_at: new Date().toISOString(),
+                total_files: result.total_files || get().queueStats.total,
+                completed_files: 0,
+                failed_files: 0,
+                total_processing_time: 0,
+                average_time_per_file: 0,
+                output_directory: options.output_directory,
+                is_paused: false
+              }
+              console.log('📋 AppStore: Initializing processing session:', newSession)
+              get().setCurrentSession(newSession)
+            }
+            
+            console.log('📡 Additional status updates will come via WebSocket events')
             
           } catch (error) {
             console.error('❌ Error in startProcessing:', error)
@@ -704,7 +828,9 @@ export const useAppStore = create<AppStore>()(
         stopProcessing: async () => {
           try {
             await VideoTranscriberAPI.stopProcessing()
-            // Status will be updated via WebSocket event
+            // Clear the current session when processing stops
+            console.log('🛑 AppStore: Clearing session on stop processing')
+            get().setCurrentSession(null)
           } catch (error) {
             set({ error: `Failed to stop processing: ${error}` })
           }
