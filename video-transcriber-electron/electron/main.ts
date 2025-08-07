@@ -1,7 +1,8 @@
 import { app, BrowserWindow, shell, ipcMain, dialog, globalShortcut } from 'electron'
 import { join } from 'path'
 import { spawn, ChildProcess } from 'child_process'
-import { platform, homedir } from 'os'
+import { platform, homedir, totalmem, freemem, cpus } from 'os'
+import { statSync } from 'fs'
 
 // The built directory structure
 //
@@ -69,7 +70,9 @@ class ElectronApp {
       minWidth: 800,
       minHeight: 600,
       icon: join(process.env.VITE_PUBLIC || '.', 'icon.png'),
-      frame: false, // Remove native window chrome to prevent double title bar
+      frame: false, // Complete frameless window - no native chrome at all
+      titleBarStyle: 'hidden', // Completely hide title bar on all platforms
+      titleBarOverlay: false, // Explicitly disable Windows 11 overlay
       webPreferences: {
         preload: join(__dirname, './preload.js'),
         nodeIntegration: false,
@@ -79,7 +82,14 @@ class ElectronApp {
         experimentalFeatures: false
       },
       show: false, // Don't show until ready-to-show
-      titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default'
+      trafficLightPosition: { x: -100, y: -100 }, // Hide macOS traffic lights completely off-screen
+      autoHideMenuBar: true,
+      // Ensure complete control removal
+      maximizable: true,
+      minimizable: true,
+      resizable: true,
+      skipTaskbar: false,
+      thickFrame: false // Remove Windows thick frame completely
     })
 
     // Show window when ready to prevent visual flash
@@ -176,6 +186,7 @@ class ElectronApp {
             console.log('⚠️ No valid file paths extracted from drop');
           }
         });
+        
         
         console.log('🔧 Native drop handlers installed');
       `)
@@ -411,6 +422,117 @@ ipcMain.handle('window:toggleDevTools', () => {
     } else {
       focusedWindow.webContents.openDevTools({ mode: 'detach' })
     }
+  }
+})
+
+// System metrics IPC handlers for status bar
+ipcMain.handle('system:getMemoryUsage', () => {
+  try {
+    const total = totalmem()
+    const free = freemem()
+    const used = total - free
+    const usedPercentage = Math.round((used / total) * 100)
+    return {
+      total: Math.round(total / (1024 * 1024 * 1024)), // GB
+      used: Math.round(used / (1024 * 1024 * 1024)), // GB
+      free: Math.round(free / (1024 * 1024 * 1024)), // GB
+      usedPercentage
+    }
+  } catch (error) {
+    console.error('Failed to get memory usage:', error)
+    return { total: 0, used: 0, free: 0, usedPercentage: 0 }
+  }
+})
+
+ipcMain.handle('system:getDiskSpace', async (_, path?: string) => {
+  try {
+    const targetPath = path || (platform() === 'win32' ? 'C:' : '/')
+    
+    if (platform() === 'win32') {
+      // Windows: Use wmic to get disk space
+      return new Promise((resolve) => {
+        const { exec } = require('child_process')
+        exec('wmic logicaldisk where size!=0 get size,freespace,caption', (error: any, stdout: string) => {
+          if (error) {
+            console.error('Failed to get disk space via wmic:', error)
+            resolve({ total: 0, free: 0, used: 0 })
+            return
+          }
+          
+          try {
+            const lines = stdout.trim().split('\n').slice(1) // Skip header
+            const cDrive = lines.find(line => line.includes('C:'))
+            if (cDrive) {
+              const parts = cDrive.trim().split(/\s+/)
+              const free = Math.round(parseInt(parts[1]) / (1024 * 1024 * 1024)) // Convert to GB
+              const total = Math.round(parseInt(parts[2]) / (1024 * 1024 * 1024)) // Convert to GB
+              const used = total - free
+              resolve({ total, free, used })
+            } else {
+              resolve({ total: 0, free: 0, used: 0 })
+            }
+          } catch (parseError) {
+            console.error('Failed to parse disk space output:', parseError)
+            resolve({ total: 0, free: 0, used: 0 })
+          }
+        })
+      })
+    } else {
+      // Unix-like: Use df command
+      return new Promise((resolve) => {
+        const { exec } = require('child_process')
+        exec('df -h /', (error: any, stdout: string) => {
+          if (error) {
+            resolve({ total: 0, free: 0, used: 0 })
+            return
+          }
+          
+          try {
+            const lines = stdout.trim().split('\n')
+            const rootLine = lines[1] // Second line contains root filesystem info
+            const parts = rootLine.split(/\s+/)
+            const total = parseInt(parts[1].replace('G', '')) || 0
+            const used = parseInt(parts[2].replace('G', '')) || 0
+            const free = parseInt(parts[3].replace('G', '')) || 0
+            resolve({ total, free, used })
+          } catch (parseError) {
+            resolve({ total: 0, free: 0, used: 0 })
+          }
+        })
+      })
+    }
+  } catch (error) {
+    console.error('Failed to get disk space:', error)
+    return { total: 0, free: 0, used: 0 }
+  }
+})
+
+ipcMain.handle('system:getCPUInfo', () => {
+  try {
+    const cpuInfo = cpus()
+    const hasGPU = platform() === 'win32' // Simplified GPU detection
+    return {
+      cores: cpuInfo.length,
+      model: cpuInfo[0]?.model || 'Unknown',
+      hasGPU,
+      processingMode: hasGPU ? 'GPU' : 'CPU'
+    }
+  } catch (error) {
+    console.error('Failed to get CPU info:', error)
+    return { cores: 0, model: 'Unknown', hasGPU: false, processingMode: 'CPU' }
+  }
+})
+
+ipcMain.handle('backend:healthCheck', async () => {
+  try {
+    // Try to connect to the Python backend
+    const response = await fetch('http://127.0.0.1:8000/health').catch(() => null)
+    if (response && response.ok) {
+      return { status: 'connected', timestamp: Date.now() }
+    }
+    return { status: 'disconnected', timestamp: Date.now() }
+  } catch (error) {
+    return { status: 'disconnected', timestamp: Date.now() }
   }
 })
 

@@ -439,13 +439,15 @@ websocket_manager = ConnectionManager()
 @app.get("/health")
 async def health_check():
     """Enhanced health check endpoint with debugging info"""
+    print("🔥 HEALTH CHECK CALLED - LATEST VERSION ACTIVE")
     return {
         "status": "healthy", 
         "timestamp": datetime.now().isoformat(),
         "real_processing_available": REAL_PROCESSING_AVAILABLE,
         "transcription_pipeline_loaded": app_state.get("transcription_pipeline") is not None,
         "working_directory": str(Path.cwd()),
-        "mock_processing_removed": True  # Flag to indicate mock processing was removed
+        "mock_processing_removed": True,  # Flag to indicate mock processing was removed
+        "version_check": "LATEST_2025_08_07_V2"  # Version indicator to confirm code is updated
     }
 
 @app.get("/api/status")

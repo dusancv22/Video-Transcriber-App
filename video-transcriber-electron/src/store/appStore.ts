@@ -919,4 +919,3 @@ export const useSettingsActions = () => useAppStore(state => ({
 
 // Export types and defaults for external use
 export { DEFAULT_PROCESSING_OPTIONS }
-export type { ProcessingOptions }

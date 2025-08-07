@@ -44,6 +44,18 @@ export interface ElectronAPI {
     maximize: () => Promise<void>
     toggleDevTools: () => Promise<void>
   }
+
+  // System metrics for status bar
+  system: {
+    getMemoryUsage: () => Promise<{ total: number; used: number; free: number; usedPercentage: number }>
+    getDiskSpace: (path?: string) => Promise<{ total: number; free: number; used: number }>
+    getCPUInfo: () => Promise<{ cores: number; model: string; hasGPU: boolean; processingMode: string }>
+  }
+
+  // Backend health check
+  backend: {
+    healthCheck: () => Promise<{ status: string; timestamp: number }>
+  }
 }
 
 // Expose protected methods that allow the renderer process to use
@@ -104,6 +116,16 @@ const electronAPI: ElectronAPI = {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),
     toggleDevTools: () => ipcRenderer.invoke('window:toggleDevTools')
+  },
+
+  system: {
+    getMemoryUsage: () => ipcRenderer.invoke('system:getMemoryUsage'),
+    getDiskSpace: (path?: string) => ipcRenderer.invoke('system:getDiskSpace', path),
+    getCPUInfo: () => ipcRenderer.invoke('system:getCPUInfo')
+  },
+
+  backend: {
+    healthCheck: () => ipcRenderer.invoke('backend:healthCheck')
   }
 }
 

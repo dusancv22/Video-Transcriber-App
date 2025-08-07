@@ -41,6 +41,18 @@ export interface ElectronAPI {
     maximize: () => Promise<void>
     toggleDevTools: () => Promise<void>
   }
+
+  // System metrics for status bar
+  system: {
+    getMemoryUsage: () => Promise<{ total: number; used: number; free: number; usedPercentage: number }>
+    getDiskSpace: (path?: string) => Promise<{ total: number; free: number; used: number }>
+    getCPUInfo: () => Promise<{ cores: number; model: string; hasGPU: boolean; processingMode: string }>
+  }
+
+  // Backend health check
+  backend: {
+    healthCheck: () => Promise<{ status: string; timestamp: number }>
+  }
 }
 
 declare global {
