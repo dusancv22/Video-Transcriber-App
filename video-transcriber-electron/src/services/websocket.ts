@@ -30,7 +30,7 @@ export class WebSocketService {
   private connectionState: WebSocketConnectionState = 'disconnected'
 
   constructor(options: WebSocketServiceOptions = {}) {
-    this.url = options.url || 'ws://127.0.0.1:8000/ws'
+    this.url = options.url || 'ws://127.0.0.1:7050/ws'
     this.reconnectInterval = options.reconnectInterval || 5000
     this.maxReconnectAttempts = options.maxReconnectAttempts || 10
     this.heartbeatInterval = options.heartbeatInterval || 30000

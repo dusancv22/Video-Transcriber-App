@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Dialog Fix</title>
+</head>
+<body>
+    <h1>Electron Dialog API Test</h1>
+    <p>Use this page to test if the directory dialog is working.</p>
+    
+    <button id="testDialog">Test Directory Dialog</button>
+    <div id="result"></div>
+    
+    <script>
+        document.getElementById('testDialog').addEventListener('click', async () => {
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                if (!window.electronAPI?.dialog?.showOpenDialog) {
+                    throw new Error('electronAPI.dialog.showOpenDialog is not available');
+                }
+                
+                const result = await window.electronAPI.dialog.showOpenDialog({
+                    title: 'Select Test Directory',
+                    properties: ['openDirectory', 'createDirectory']
+                });
+                
+                if (!result.canceled && result.filePaths.length > 0) {
+                    resultDiv.innerHTML = `<p style="color: green;">Success! Selected: ${result.filePaths[0]}</p>`;
+                } else {
+                    resultDiv.innerHTML = `<p style="color: orange;">Dialog was canceled</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+                console.error('Dialog test error:', error);
+            }
+        });
+        
+        // Check if electronAPI is available on load
+        window.addEventListener('load', () => {
+            const statusDiv = document.createElement('div');
+            if (window.electronAPI) {
+                statusDiv.innerHTML = '<p style="color: green;">✓ electronAPI is available</p>';
+                if (window.electronAPI.dialog) {
+                    statusDiv.innerHTML += '<p style="color: green;">✓ dialog API is available</p>';
+                } else {
+                    statusDiv.innerHTML += '<p style="color: red;">✗ dialog API is NOT available</p>';
+                }
+            } else {
+                statusDiv.innerHTML = '<p style="color: red;">✗ electronAPI is NOT available</p>';
+            }
+            document.body.insertBefore(statusDiv, document.querySelector('button'));
+        });
+    </script>
+</body>
+</html>

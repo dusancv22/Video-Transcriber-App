@@ -39,8 +39,8 @@ Start-Sleep -Seconds 3
 
 # Check if backend is running
 try {
-    $response = Invoke-WebRequest -Uri "http://127.0.0.1:8000/api/status" -TimeoutSec 5
-    Write-Host "✅ Backend is running on http://127.0.0.1:8000" -ForegroundColor Green
+    $response = Invoke-WebRequest -Uri "http://127.0.0.1:7050/api/status" -TimeoutSec 5
+    Write-Host "✅ Backend is running on http://127.0.0.1:7050" -ForegroundColor Green
 } catch {
     Write-Host "⚠️  Backend may still be starting..." -ForegroundColor Yellow
 }
