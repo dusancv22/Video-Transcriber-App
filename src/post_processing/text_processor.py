@@ -74,27 +74,45 @@ class TextProcessor:
         # First clean up any obvious issues
         text = re.sub(r'\s+', ' ', text).strip()
         
-        # Split into potential sentences (handle multiple cases)
-        raw_sentences = re.split(r'([^.!?]+[.!?]*)', text)
-        sentences = [s.strip() for s in raw_sentences if s.strip()]
+        # Handle empty or very short text
+        if len(text) < 10:
+            if text and not text[0].isupper():
+                text = text[0].upper() + text[1:]
+            if text and text[-1] not in '.!?':
+                text += '.'
+            return text
+        
+        # Split into potential sentences with improved regex
+        # This regex better handles abbreviations and decimals
+        sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
         
         formatted = []
         for sentence in sentences:
-            if not sentence:
+            if not sentence or len(sentence.strip()) < 2:
                 continue
             
-            # Remove extra spaces and handle other cleanup
+            # Remove extra spaces
             sentence = ' '.join(sentence.split())
             
-            # Handle capitalization
+            # Capitalize first letter
             if sentence and not sentence[0].isupper():
                 sentence = sentence[0].upper() + sentence[1:]
             
-            # Handle punctuation
-            if not sentence[-1] in '.!?':
-                # Check if it's a question
-                if any(q in sentence.lower() for q in ['what', 'why', 'how', 'when', 'where', 'who']):
+            # Capitalize 'I' anywhere in the sentence
+            sentence = re.sub(r'\bi\b', 'I', sentence)
+            
+            # Add ending punctuation if missing
+            if sentence and sentence[-1] not in '.!?':
+                # Improved question detection
+                question_starters = ['what', 'why', 'how', 'when', 'where', 'who', 'which',
+                                   'can', 'could', 'would', 'should', 'will', 'do', 'does',
+                                   'did', 'is', 'are', 'was', 'were', 'have', 'has']
+                first_word = sentence.split()[0].lower() if sentence.split() else ''
+                
+                if first_word in question_starters:
                     sentence += '?'
+                elif any(word in sentence.lower() for word in ['amazing', 'awesome', 'fantastic', 'terrible']):
+                    sentence += '!'
                 else:
                     sentence += '.'
             

@@ -6,7 +6,7 @@ This replaces the card-based design with a clean, efficient layout
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QLabel, QFileDialog, QProgressBar,
-    QListWidget, QListWidgetItem, QMessageBox
+    QListWidget, QListWidgetItem, QMessageBox, QComboBox
 )
 from PyQt6.QtCore import Qt, QTimer, QThread
 from PyQt6.QtGui import QIcon, QFont
@@ -15,6 +15,7 @@ from src.transcription.transcription_pipeline import TranscriptionPipeline
 from src.input_handling.queue_manager import QueueManager, FileStatus
 from src.ui.worker import TranscriptionWorker
 from src.ui.styles.modern_theme import ModernTheme
+from src.config.settings import Settings
 import logging
 import time
 from datetime import datetime, timedelta
@@ -36,10 +37,12 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(ModernTheme.get_stylesheet())
         
         # Initialize components
+        self.settings = Settings()
         self.pipeline = None  # Lazy initialization
         self.queue_manager = QueueManager()
         self.output_directory = None
         self.worker = None
+        self.custom_model_path = None
         
         # Time tracking
         self.current_file_start_time = None
@@ -63,22 +66,9 @@ class MainWindow(QMainWindow):
         
         print("Initializing Video Transcriber interface...")
         
-        # Header with title
-        header_layout = QHBoxLayout()
-        title_label = QLabel("Video Transcriber")
-        title_label.setStyleSheet(f"""
-            font-size: 16px;
-            font-weight: 600;
-            color: {ModernTheme.COLORS['text_primary']};
-            margin: 4px;
-        """)
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
-        layout.addLayout(header_layout)
-        
         # Toolbar - flat button layout
         toolbar = QHBoxLayout()
-        toolbar.setSpacing(6)
+        toolbar.setSpacing(8)
         
         # Clean buttons without icons
         self.add_files_btn = QPushButton("Add Files")
@@ -89,7 +79,7 @@ class MainWindow(QMainWindow):
         self.add_dir_btn.clicked.connect(self.add_directory)
         toolbar.addWidget(self.add_dir_btn)
         
-        self.output_dir_btn = QPushButton("Output Directory")
+        self.output_dir_btn = QPushButton("Select Output")
         self.output_dir_btn.clicked.connect(self.select_output_dir)
         self.output_dir_btn.setProperty("class", "secondary")
         toolbar.addWidget(self.output_dir_btn)
@@ -113,6 +103,62 @@ class MainWindow(QMainWindow):
             background-color: {ModernTheme.COLORS['surface_variant']};
         """)
         layout.addWidget(self.output_dir_label)
+        
+        # Model selection section
+        model_section = QHBoxLayout()
+        model_section.setSpacing(8)
+        
+        # Model status label
+        self.model_status_label = QLabel("Whisper Model: Default")
+        self.model_status_label.setStyleSheet(f"""
+            color: {ModernTheme.COLORS['text_secondary']};
+            font-size: 12px;
+            padding: 4px 8px;
+            border: 1px solid {ModernTheme.COLORS['outline']};
+            border-radius: {ModernTheme.RADIUS['sm']};
+            background-color: {ModernTheme.COLORS['surface_variant']};
+            min-width: 200px;
+        """)
+        model_section.addWidget(self.model_status_label)
+        
+        # Model size dropdown
+        self.model_size_combo = QComboBox()
+        self.model_size_combo.addItems(['tiny', 'base', 'small', 'medium', 'large'])
+        self.model_size_combo.setCurrentText(self.settings.get('whisper_model_size', 'large'))
+        self.model_size_combo.currentTextChanged.connect(self.on_model_size_changed)
+        self.model_size_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {ModernTheme.COLORS['surface']};
+                border: 1px solid {ModernTheme.COLORS['outline']};
+                border-radius: {ModernTheme.RADIUS['sm']};
+                padding: 4px 8px;
+                font-size: 12px;
+                min-width: 80px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid {ModernTheme.COLORS['text_secondary']};
+            }}
+        """)
+        model_section.addWidget(self.model_size_combo)
+        
+        # Load model button
+        self.load_model_btn = QPushButton("Load Model Folder")
+        self.load_model_btn.clicked.connect(self.load_model_folder)
+        self.load_model_btn.setProperty("class", "secondary")
+        self.load_model_btn.setMaximumWidth(150)
+        model_section.addWidget(self.load_model_btn)
+        
+        model_section.addStretch()
+        layout.addLayout(model_section)
+        
+        # Update model status based on detected models
+        self.update_model_status()
         
         # Progress section (initially hidden)
         self.progress_group = QWidget()
@@ -149,19 +195,20 @@ class MainWindow(QMainWindow):
         queue_header = QHBoxLayout()
         queue_label = QLabel("Queue")
         queue_label.setStyleSheet(f"""
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 600;
             color: {ModernTheme.COLORS['text_primary']};
         """)
         queue_header.addWidget(queue_label)
+        queue_header.addStretch()
         
         # Pause button
         self.pause_btn = QPushButton("Pause")
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.pause_btn.setEnabled(False)
         self.pause_btn.setProperty("class", "warning")
+        self.pause_btn.setMaximumWidth(100)
         queue_header.addWidget(self.pause_btn)
-        queue_header.addStretch()
         layout.addLayout(queue_header)
         
         # Queue list
@@ -191,12 +238,12 @@ class MainWindow(QMainWindow):
             QPushButton {{
                 background-color: {ModernTheme.COLORS['success']};
                 color: white;
-                padding: 8px;
+                padding: 8px 20px;
                 border: none;
-                border-radius: {ModernTheme.RADIUS['sm']};
-                font-weight: 500;
+                border-radius: {ModernTheme.RADIUS['md']};
+                font-weight: 700;
                 font-size: 13px;
-                min-height: 30px;
+                min-height: 36px;
             }}
             QPushButton:hover {{
                 background-color: #059669;
@@ -253,7 +300,15 @@ class MainWindow(QMainWindow):
         """Lazily initialize the transcription pipeline when needed."""
         if self.pipeline is None:
             print("\nInitializing transcription pipeline...")
-            self.pipeline = TranscriptionPipeline()
+            # Get model settings from configuration
+            model_size = self.settings.get('whisper_model_size', 'large')
+            model_path = self.settings.get_whisper_model_path()
+            
+            self.pipeline = TranscriptionPipeline(
+                use_advanced_processing=self.settings.get('use_advanced_processing', True),
+                model_size=model_size,
+                model_path=str(model_path) if model_path else None
+            )
             print("Pipeline initialized successfully")
 
     def update_time_estimate(self):
@@ -642,9 +697,11 @@ class MainWindow(QMainWindow):
                 QPushButton {{
                     background-color: {ModernTheme.COLORS['success']};
                     color: white;
-                    padding: 12px 20px;
+                    padding: 6px 16px;
                     border-radius: {ModernTheme.RADIUS['md']};
-                    font-weight: 600;
+                    font-weight: 700;
+                    font-size: 12px;
+                    min-height: 32px;
                 }}
                 QPushButton:hover {{
                     background-color: #15803d;
@@ -654,3 +711,83 @@ class MainWindow(QMainWindow):
             print("Processing paused")
             
         logger.info(f"Processing {'resumed' if not self.worker.is_paused else 'paused'}")
+    
+    def load_model_folder(self):
+        """Open dialog to select a folder containing Whisper models."""
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select Whisper Model Folder",
+            str(Path.home()),
+            QFileDialog.Option.ShowDirsOnly
+        )
+        
+        if folder:
+            # Save the custom model folder
+            self.settings.set('custom_model_folder', folder)
+            
+            # Update the model status
+            self.update_model_status()
+            
+            # Check if we found any models
+            available_models = self.settings.detect_available_models()
+            model_size = self.settings.get('whisper_model_size', 'large')
+            
+            if model_size in available_models:
+                QMessageBox.information(
+                    self, 
+                    "Model Found", 
+                    f"Found {model_size} model in {folder}\n"
+                    f"File: {available_models[model_size]['filename']}\n"
+                    f"Size: {available_models[model_size]['size_mb']} MB"
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "No Model Found",
+                    f"No {model_size} model found in {folder}\n\n"
+                    "Please ensure the folder contains Whisper model files (.pt)\n"
+                    "Model files should be named like: tiny.pt, base.pt, small.pt, medium.pt, or large.pt"
+                )
+    
+    def on_model_size_changed(self, model_size: str):
+        """Handle model size selection change."""
+        # Save the new model size preference
+        self.settings.set('whisper_model_size', model_size)
+        
+        # Update the model status
+        self.update_model_status()
+        
+        # If pipeline is already initialized, we'll need to reload it next time
+        if self.pipeline:
+            self.pipeline = None  # Force re-initialization with new model
+            print(f"Model size changed to {model_size}. Will reload on next use.")
+    
+    def update_model_status(self):
+        """Update the model status label based on available models."""
+        model_size = self.settings.get('whisper_model_size', 'large')
+        model_path = self.settings.get_whisper_model_path()
+        
+        if model_path:
+            # Model found locally
+            self.model_status_label.setText(f"Model: {model_size} (Local)")
+            self.model_status_label.setStyleSheet(f"""
+                color: {ModernTheme.COLORS['success']};
+                font-size: 12px;
+                padding: 4px 8px;
+                border: 1px solid {ModernTheme.COLORS['success']};
+                border-radius: {ModernTheme.RADIUS['sm']};
+                background-color: {ModernTheme.COLORS['surface_variant']};
+                min-width: 200px;
+            """)
+        else:
+            # Model will be downloaded
+            self.model_status_label.setText(f"Model: {model_size} (Will download)")
+            self.model_status_label.setStyleSheet(f"""
+                color: {ModernTheme.COLORS['warning']};
+                font-size: 12px;
+                padding: 4px 8px;
+                border: 1px solid {ModernTheme.COLORS['warning']};
+                border-radius: {ModernTheme.RADIUS['sm']};
+                background-color: {ModernTheme.COLORS['surface_variant']};
+                min-width: 200px;
+            """)

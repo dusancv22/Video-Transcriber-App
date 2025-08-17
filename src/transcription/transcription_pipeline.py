@@ -6,20 +6,29 @@ from datetime import datetime
 from src.audio_processing.converter import AudioConverter
 from src.transcription.whisper_manager import WhisperManager
 from src.post_processing.text_processor import TextProcessor
+from src.post_processing.advanced_text_processor import AdvancedTextProcessor
 from src.post_processing.combiner import TextCombiner
 
 logger = logging.getLogger(__name__)
 
 class TranscriptionPipeline:
-    def __init__(self):
-        """Initialize the transcription pipeline components."""
-        logger.info("Initializing TranscriptionPipeline")
+    def __init__(self, use_advanced_processing: bool = True, model_size: str = "large", model_path: Optional[str] = None):
+        """Initialize the transcription pipeline components.
+        
+        Args:
+            use_advanced_processing: Whether to use advanced text processing (filler removal, etc.)
+            model_size: Size of the Whisper model to use
+            model_path: Optional path to a pre-downloaded model file
+        """
+        logger.info(f"Initializing TranscriptionPipeline with model_size={model_size}")
         print("\nInitializing transcription pipeline...")
         self.converter = AudioConverter()
-        self.whisper_manager = WhisperManager(model_size="large")
+        self.whisper_manager = WhisperManager(model_size=model_size, model_path=model_path)
         self.text_processor = TextProcessor()
+        self.advanced_processor = AdvancedTextProcessor(remove_fillers=True, aggressive_cleaning=True)
         self.text_combiner = TextCombiner()
-        print("Pipeline initialized successfully")
+        self.use_advanced_processing = use_advanced_processing
+        print(f"Pipeline initialized successfully (Advanced processing: {'Enabled' if use_advanced_processing else 'Disabled'})")
         
     def process_video(
         self, 
@@ -91,10 +100,17 @@ class TranscriptionPipeline:
                         f"Transcribing segment {idx}/{total_segments}"
                     )
                 
-                result = self.whisper_manager.transcribe_audio(audio_file)
-                full_text.append(result['text'])
-                if not detected_language:
-                    detected_language = result['language']
+                try:
+                    print(f"DEBUG: Attempting to transcribe: {audio_file}")
+                    result = self.whisper_manager.transcribe_audio(audio_file)
+                    print(f"DEBUG: Transcription successful for segment {idx}")
+                    full_text.append(result['text'])
+                    if not detected_language:
+                        detected_language = result['language']
+                except Exception as e:
+                    print(f"ERROR: Failed to transcribe segment {idx}: {e}")
+                    logger.error(f"Failed to transcribe segment {idx}: {e}")
+                    raise
                     
             transcription_time = time.time() - transcription_start
             print(f"\nTranscription completed in {transcription_time:.2f} seconds")
@@ -122,7 +138,12 @@ class TranscriptionPipeline:
                 print("Single segment - no deduplication needed")
                 combined_text = full_text[0] if full_text else ""
             
+            # Apply text processing - basic first, then advanced if enabled
             processed_text = self.text_processor.process_transcript(combined_text)
+            
+            if self.use_advanced_processing:
+                print("Applying advanced post-processing (filler removal, smart formatting)...")
+                processed_text = self.advanced_processor.process_transcript(processed_text)
             
             processing_time = time.time() - processing_start
             print(f"Post-processing completed in {processing_time:.2f} seconds")

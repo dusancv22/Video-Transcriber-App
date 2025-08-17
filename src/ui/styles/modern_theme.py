@@ -144,10 +144,10 @@ class ModernTheme:
             color: {cls.COLORS['text_on_primary']};
             border: none;
             border-radius: {cls.RADIUS['md']};
-            padding: {cls.SPACING['sm']} {cls.SPACING['md']};
-            font-weight: {cls.TYPOGRAPHY['weight_medium']};
+            padding: 6px 16px;
+            font-weight: {cls.TYPOGRAPHY['weight_bold']};
             font-size: {cls.TYPOGRAPHY['size_sm']};
-            min-height: 28px;
+            min-height: 32px;
             text-align: center;
         }}
         
@@ -165,33 +165,35 @@ class ModernTheme:
         }}
         
         /* Secondary Button Style */
-        QPushButton.secondary {{
+        QPushButton[class="secondary"] {{
             background-color: {cls.COLORS['surface']};
             color: {cls.COLORS['primary']};
-            border: 2px solid {cls.COLORS['primary']};
+            border: 1px solid {cls.COLORS['primary']};
         }}
         
-        QPushButton.secondary:hover {{
+        QPushButton[class="secondary"]:hover {{
             background-color: {cls.COLORS['primary_light']};
             border-color: {cls.COLORS['primary_hover']};
         }}
         
         /* Danger Button Style */
-        QPushButton.danger {{
+        QPushButton[class="danger"] {{
             background-color: {cls.COLORS['error']};
+            color: {cls.COLORS['text_on_primary']};
         }}
         
-        QPushButton.danger:hover {{
+        QPushButton[class="danger"]:hover {{
             background-color: #DC2626;
         }}
         
         /* Warning Button Style */
-        QPushButton.warning {{
-            background-color: {cls.COLORS['warning']};
+        QPushButton[class="warning"] {{
+            background-color: {cls.COLORS['secondary']};
+            color: {cls.COLORS['text_on_primary']};
         }}
         
-        QPushButton.warning:hover {{
-            background-color: #D97706;
+        QPushButton[class="warning"]:hover {{
+            background-color: {cls.COLORS['secondary_hover']};
         }}
         
         /* ========================================

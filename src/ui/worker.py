@@ -86,8 +86,13 @@ class TranscriptionWorker(QThread):
                         logger.error(f"Failed to process {next_item.file_path.name}: {error_msg}")
 
                 except Exception as e:
+                    import traceback
+                    error_details = traceback.format_exc()
                     logger.error(f"Error processing {next_item.file_path.name}: {e}")
-                    print(f"Error processing {next_item.file_path.name}: {e}")
+                    logger.error(f"Full traceback:\n{error_details}")
+                    print(f"ERROR: Failed to process {next_item.file_path.name}")
+                    print(f"ERROR: {e}")
+                    print(f"DEBUG: Full traceback:\n{error_details}")
                     self.error_occurred.emit(str(next_item.file_path), str(e))
 
         except Exception as e:

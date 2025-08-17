@@ -1,35 +1,92 @@
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import whisper
 import torch
 import time
 import logging
 from datetime import datetime
+import os
 
 logger = logging.getLogger(__name__)
 
 class WhisperManager:
-    def __init__(self, model_size: str = "large"):
-        """Initialize Whisper manager with specified model size."""
+    def __init__(self, model_size: str = "large", model_path: Optional[str] = None):
+        """Initialize Whisper manager with specified model size.
+        
+        Args:
+            model_size: Size of the model (tiny, base, small, medium, large)
+            model_path: Optional path to a pre-downloaded model file
+        """
         self.model_size = model_size
+        self.model_path = model_path
         self.model = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Initializing WhisperManager with {model_size} model on {self.device}")
+        if model_path:
+            logger.info(f"Using custom model path: {model_path}")
         self.load_model()
         
     def load_model(self) -> None:
         """Load the Whisper model into memory."""
         try:
             start_time = time.time()
-            print(f"Loading Whisper {self.model_size} model...")
-            self.model = whisper.load_model(self.model_size).to(self.device)
+            
+            if self.model_path and Path(self.model_path).exists():
+                # Load model from custom path
+                print(f"Loading Whisper model from: {self.model_path}")
+                logger.info(f"Loading model from custom path: {self.model_path}")
+                
+                # Load the model using the custom path
+                self.model = whisper.load_model(self.model_path).to(self.device)
+                
+                # Try to detect model size from filename if not specified
+                if 'large' in Path(self.model_path).name.lower():
+                    self.model_size = 'large'
+                elif 'medium' in Path(self.model_path).name.lower():
+                    self.model_size = 'medium'
+                elif 'small' in Path(self.model_path).name.lower():
+                    self.model_size = 'small'
+                elif 'base' in Path(self.model_path).name.lower():
+                    self.model_size = 'base'
+                elif 'tiny' in Path(self.model_path).name.lower():
+                    self.model_size = 'tiny'
+                    
+            else:
+                # Use default Whisper loading (will download if needed)
+                print(f"Loading Whisper {self.model_size} model (downloading if needed)...")
+                logger.info(f"Loading {self.model_size} model using default method")
+                self.model = whisper.load_model(self.model_size).to(self.device)
+            
             load_time = time.time() - start_time
             print(f"Model loaded successfully on {self.device} (took {load_time:.2f} seconds)")
             logger.info(f"Model loaded successfully on {self.device} (took {load_time:.2f} seconds)")
+            
         except Exception as e:
             error_msg = f"Failed to load Whisper model: {str(e)}"
             logger.error(error_msg)
+            print(f"Error: {error_msg}")
             raise RuntimeError(error_msg)
+    
+    def reload_model(self, model_size: str, model_path: Optional[str] = None) -> None:
+        """Reload the model with new settings.
+        
+        Args:
+            model_size: New model size
+            model_path: Optional new model path
+        """
+        logger.info(f"Reloading model: size={model_size}, path={model_path}")
+        
+        # Clear current model from memory
+        if self.model:
+            del self.model
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        
+        # Update settings
+        self.model_size = model_size
+        self.model_path = model_path
+        
+        # Load new model
+        self.load_model()
 
     def transcribe_audio(self, audio_path: str | Path) -> Dict[str, Any]:
         """
@@ -60,7 +117,13 @@ class WhisperManager:
             file_size_mb = audio_path.stat().st_size / (1024 * 1024)
             print(f"File size: {file_size_mb:.2f} MB")
             
+            # Log transcription parameters for debugging
+            print(f"DEBUG: Starting transcription with model {self.model_size}")
+            print(f"DEBUG: Device: {self.device}")
+            print(f"DEBUG: Audio path: {audio_path}")
+            
             # Perform transcription with enhanced repetition prevention parameters
+            # Note: Removed no_captions_threshold as it's not supported in this version
             result = self.model.transcribe(
                 str(audio_path),
                 language='en',  # Force English language
@@ -69,12 +132,13 @@ class WhisperManager:
                 temperature=0.0,  # Eliminate randomness for consistent output
                 compression_ratio_threshold=2.4,  # Detect repetitive/low-quality content
                 logprob_threshold=-1.0,  # Filter out low-confidence transcriptions
-                no_captions_threshold=0.6,  # Skip segments with no clear speech
                 condition_on_previous_text=False,  # Prevent context bleeding between segments
                 initial_prompt=None,  # Clear initial prompt to prevent bias
                 suppress_blank=True,  # Remove blank/empty segments
                 suppress_tokens=[-1],  # Suppress specific problematic tokens if needed
             )
+            
+            print(f"DEBUG: Transcription result received successfully")
             
             # Get the raw transcription text
             raw_text = result['text']

@@ -1,8 +1,10 @@
 from pathlib import Path
-import moviepy.editor as mp
+import ffmpeg
 from typing import Tuple, Optional, Callable
 import logging
 import time
+import os
+import subprocess
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,51 @@ class AudioConverter:
             list: List of dictionaries containing segment metadata including overlap information
         """
         return self._last_split_metadata.copy()
+
+    def _get_audio_duration(self, audio_path: str) -> float:
+        """
+        Get duration of audio file using ffmpeg.
+        
+        Args:
+            audio_path: Path to the audio file
+            
+        Returns:
+            float: Duration in seconds
+        """
+        try:
+            probe = ffmpeg.probe(audio_path)
+            duration = float(probe['streams'][0]['duration'])
+            return duration
+        except Exception as e:
+            logger.error(f"Error getting audio duration: {e}")
+            return 0.0
+
+    def _extract_audio_segment(self, input_path: str, output_path: str, start_time: float, end_time: float) -> bool:
+        """
+        Extract audio segment using ffmpeg.
+        
+        Args:
+            input_path: Source audio file path
+            output_path: Output segment path
+            start_time: Start time in seconds
+            end_time: End time in seconds
+            
+        Returns:
+            bool: Success status
+        """
+        try:
+            duration = end_time - start_time
+            (
+                ffmpeg
+                .input(input_path, ss=start_time, t=duration)
+                .output(output_path, acodec='libmp3lame', ar=44100)
+                .overwrite_output()
+                .run(capture_stdout=True, capture_stderr=True)
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error extracting audio segment: {e}")
+            return False
 
     def check_file_size(self, file_path: str) -> float:
         """
@@ -65,10 +112,9 @@ class AudioConverter:
                 self._last_split_metadata = []
                 return [audio_path]
                 
-            # Load audio and prepare for splitting
-            print("Loading audio file for splitting...")
-            audio = mp.AudioFileClip(audio_path)
-            duration = audio.duration
+            # Get audio duration for splitting
+            print("Getting audio duration for splitting...")
+            duration = self._get_audio_duration(audio_path)
             
             # Calculate segments
             segments = int(size / max_size_mb) + 1
@@ -122,19 +168,13 @@ class AudioConverter:
                 })
                 
                 # Extract and save segment
-                segment = audio.subclip(start_time, end_time)
-                segment.write_audiofile(
-                    str(segment_path),
-                    fps=44100,
-                    nbytes=4,
-                    codec='libmp3lame',
-                    logger=None
-                )
-                split_files.append(str(segment_path))
-                print(f"Segment {i+1} created successfully")
+                if self._extract_audio_segment(audio_path, str(segment_path), start_time, end_time):
+                    split_files.append(str(segment_path))
+                    print(f"Segment {i+1} created successfully")
+                else:
+                    print(f"Failed to create segment {i+1}")
+                    logger.error(f"Failed to create segment {i+1}")
                 
-            # Cleanup
-            audio.close()
             # Remove original large file
             Path(audio_path).unlink()
             print("\nOriginal file removed after splitting")
@@ -183,35 +223,26 @@ class AudioConverter:
             if progress_callback:
                 progress_callback(0)
             
-            # Load video and extract audio
-            print("Loading video file...")
-            video = mp.VideoFileClip(str(video_path))
-            
-            if video.audio is None:
-                error_msg = "Video has no audio track"
+            # Check if video has audio track and convert using ffmpeg
+            print("Extracting audio from video...")
+            try:
+                (
+                    ffmpeg
+                    .input(str(video_path))
+                    .output(str(output_path), acodec='libmp3lame', ar=44100)
+                    .overwrite_output()
+                    .run(capture_stdout=True, capture_stderr=True)
+                )
+                print("Audio extraction completed")
+            except ffmpeg.Error as e:
+                error_msg = f"FFmpeg error during conversion: {e.stderr.decode() if e.stderr else str(e)}"
                 logger.error(error_msg)
                 print(f"Error: {error_msg}")
                 return False, []
-                
-            audio = video.audio
-            
-            # Convert to audio
-            print("Converting to audio format...")
-            audio.write_audiofile(
-                str(output_path),
-                fps=44100,
-                nbytes=4,
-                codec='libmp3lame',
-                logger=None
-            )
             
             # Update progress
             if progress_callback:
                 progress_callback(50)
-            
-            # Cleanup video objects
-            audio.close()
-            video.close()
             
             print("\nInitial conversion completed, checking if splitting is needed")
             # Split if needed and return list of file paths
