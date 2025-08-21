@@ -88,12 +88,16 @@ class WhisperManager:
         # Load new model
         self.load_model()
 
-    def transcribe_audio(self, audio_path: str | Path) -> Dict[str, Any]:
+    def transcribe_audio(self, audio_path: str | Path, language: str = None) -> Dict[str, Any]:
         """
         Transcribe a single MP3 audio file with enhanced repetition prevention.
         
         Uses optimized Whisper parameters to prevent repetitive transcription output
         and includes post-processing to detect and clean any remaining repetition.
+        
+        Args:
+            audio_path: Path to the audio file to transcribe
+            language: Optional language code (e.g., 'en', 'es', 'fr'). If None, auto-detect.
         """
         if not self.model:
             raise RuntimeError("Model not loaded. Call load_model() first.")
@@ -124,19 +128,29 @@ class WhisperManager:
             
             # Perform transcription with enhanced repetition prevention parameters
             # Note: Removed no_captions_threshold as it's not supported in this version
-            result = self.model.transcribe(
-                str(audio_path),
-                language='en',  # Force English language
-                task='transcribe',  # Ensure we're in transcription mode
-                fp16=False,  # Use FP32 for better accuracy
-                temperature=0.0,  # Eliminate randomness for consistent output
-                compression_ratio_threshold=2.4,  # Detect repetitive/low-quality content
-                logprob_threshold=-1.0,  # Filter out low-confidence transcriptions
-                condition_on_previous_text=False,  # Prevent context bleeding between segments
-                initial_prompt=None,  # Clear initial prompt to prevent bias
-                suppress_blank=True,  # Remove blank/empty segments
-                suppress_tokens=[-1],  # Suppress specific problematic tokens if needed
-            )
+            transcribe_params = {
+                'audio': str(audio_path),
+                'task': 'transcribe',  # Ensure we're in transcription mode
+                'fp16': False,  # Use FP32 for better accuracy
+                'temperature': 0.0,  # Eliminate randomness for consistent output
+                'compression_ratio_threshold': 2.4,  # Detect repetitive/low-quality content
+                'logprob_threshold': -1.0,  # Filter out low-confidence transcriptions
+                'condition_on_previous_text': False,  # Prevent context bleeding between segments
+                'initial_prompt': None,  # Clear initial prompt to prevent bias
+                'suppress_blank': True,  # Remove blank/empty segments
+                'suppress_tokens': [-1],  # Suppress specific problematic tokens if needed
+            }
+            
+            # Add language parameter if specified
+            if language:
+                transcribe_params['language'] = language
+                print(f"Transcribing in {language} language")
+                logger.info(f"Using specified language: {language}")
+            else:
+                print("Auto-detecting language...")
+                logger.info("Language auto-detection enabled")
+            
+            result = self.model.transcribe(**transcribe_params)
             
             print(f"DEBUG: Transcription result received successfully")
             

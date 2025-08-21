@@ -34,7 +34,8 @@ class TranscriptionPipeline:
         self, 
         video_path: str | Path,
         output_dir: Optional[Path] = None,
-        progress_callback: Optional[Callable[[float, str], None]] = None
+        progress_callback: Optional[Callable[[float, str], None]] = None,
+        language: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Process a video file through the complete pipeline with enhanced progress logging.
@@ -43,6 +44,7 @@ class TranscriptionPipeline:
             video_path: Path to the video file
             output_dir: Directory for transcription output (defaults to video location)
             progress_callback: Optional callback for progress updates
+            language: Optional language code for transcription (e.g., 'en', 'es'). If None, auto-detect.
             
         Returns:
             Dictionary containing process results and timing information
@@ -102,7 +104,7 @@ class TranscriptionPipeline:
                 
                 try:
                     print(f"DEBUG: Attempting to transcribe: {audio_file}")
-                    result = self.whisper_manager.transcribe_audio(audio_file)
+                    result = self.whisper_manager.transcribe_audio(audio_file, language=language)
                     print(f"DEBUG: Transcription successful for segment {idx}")
                     full_text.append(result['text'])
                     if not detected_language:

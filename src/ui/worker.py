@@ -13,17 +13,25 @@ class TranscriptionWorker(QThread):
     all_completed = pyqtSignal()
     error_occurred = pyqtSignal(str, str)
 
-    def __init__(self, pipeline, queue_manager, output_dir):
-        """Initialize the worker thread."""
+    def __init__(self, pipeline, queue_manager, output_dir, language_code=None):
+        """Initialize the worker thread.
+        
+        Args:
+            pipeline: The transcription pipeline instance
+            queue_manager: The queue manager for handling files
+            output_dir: Directory for output files
+            language_code: Optional language code for transcription (e.g., 'en', 'es')
+        """
         super().__init__()
         self.pipeline = pipeline
         self.queue_manager = queue_manager
         self.output_dir = output_dir
+        self.language_code = language_code
         self.is_paused = False
         self._stop = False
         
-        logger.info("TranscriptionWorker initialized")
-        print("Transcription worker initialized")
+        logger.info(f"TranscriptionWorker initialized with language: {language_code or 'auto-detect'}")
+        print(f"Transcription worker initialized (Language: {language_code or 'auto-detect'})")
 
     def run(self):
         """Main processing loop with enhanced progress reporting."""
@@ -58,7 +66,8 @@ class TranscriptionWorker(QThread):
                     result = self.pipeline.process_video(
                         video_path=next_item.file_path,
                         output_dir=self.output_dir,
-                        progress_callback=progress_callback
+                        progress_callback=progress_callback,
+                        language=self.language_code
                     )
 
                     # Calculate processing time

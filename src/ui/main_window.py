@@ -43,6 +43,7 @@ class MainWindow(QMainWindow):
         self.output_directory = None
         self.worker = None
         self.custom_model_path = None
+        self.selected_language_code = None  # Will be set based on language dropdown
         
         # Time tracking
         self.current_file_start_time = None
@@ -146,6 +147,90 @@ class MainWindow(QMainWindow):
             }}
         """)
         model_section.addWidget(self.model_size_combo)
+        
+        # Language selection dropdown
+        self.language_label = QLabel("Language:")
+        self.language_label.setStyleSheet(f"""
+            color: {ModernTheme.COLORS['text_secondary']};
+            font-size: 12px;
+            padding: 4px 8px;
+        """)
+        model_section.addWidget(self.language_label)
+        
+        self.language_combo = QComboBox()
+        # Add common languages with their codes
+        # Format: "Display Name (code)"
+        languages = [
+            "Auto-detect",
+            "English (en)",
+            "Spanish (es)",
+            "French (fr)",
+            "German (de)",
+            "Italian (it)",
+            "Portuguese (pt)",
+            "Dutch (nl)",
+            "Polish (pl)",
+            "Russian (ru)",
+            "Chinese (zh)",
+            "Japanese (ja)",
+            "Korean (ko)",
+            "Arabic (ar)",
+            "Hindi (hi)",
+            "Turkish (tr)",
+            "Swedish (sv)",
+            "Norwegian (no)",
+            "Danish (da)",
+            "Finnish (fi)",
+            "Greek (el)",
+            "Hebrew (he)",
+            "Indonesian (id)",
+            "Malay (ms)",
+            "Thai (th)",
+            "Vietnamese (vi)",
+            "Czech (cs)",
+            "Hungarian (hu)",
+            "Romanian (ro)",
+            "Ukrainian (uk)",
+            "Croatian (hr)",
+            "Bulgarian (bg)",
+            "Serbian (sr)",
+            "Slovak (sk)",
+            "Slovenian (sl)",
+            "Estonian (et)",
+            "Latvian (lv)",
+            "Lithuanian (lt)",
+            "Persian (fa)",
+            "Urdu (ur)",
+            "Swahili (sw)",
+            "Filipino (tl)",
+            "Catalan (ca)",
+            "Welsh (cy)",
+            "Basque (eu)",
+            "Galician (gl)"
+        ]
+        self.language_combo.addItems(languages)
+        self.language_combo.setCurrentText(self.settings.get('transcription_language', 'Auto-detect'))
+        self.language_combo.currentTextChanged.connect(self.on_language_changed)
+        self.language_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {ModernTheme.COLORS['surface']};
+                border: 1px solid {ModernTheme.COLORS['outline']};
+                border-radius: {ModernTheme.RADIUS['sm']};
+                padding: 4px 8px;
+                font-size: 12px;
+                min-width: 120px;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid {ModernTheme.COLORS['text_secondary']};
+            }}
+        """)
+        model_section.addWidget(self.language_combo)
         
         # Load model button
         self.load_model_btn = QPushButton("Load Model Folder")
@@ -259,6 +344,9 @@ class MainWindow(QMainWindow):
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update_time_estimate)
         self.update_timer.start(1000)  # Update every second
+        
+        # Initialize language code based on current selection
+        self.on_language_changed(self.language_combo.currentText())
         
         print("Interface initialization complete")
         logger.info("UI initialization completed")
@@ -399,11 +487,12 @@ class MainWindow(QMainWindow):
         self.progress_group.show()
         
         try:
-            # Create and setup worker
+            # Create and setup worker with language preference
             self.worker = TranscriptionWorker(
                 self.pipeline,
                 self.queue_manager,
-                self.output_directory
+                self.output_directory,
+                language_code=self.selected_language_code
             )
             
             # Connect signals
@@ -761,6 +850,26 @@ class MainWindow(QMainWindow):
         if self.pipeline:
             self.pipeline = None  # Force re-initialization with new model
             print(f"Model size changed to {model_size}. Will reload on next use.")
+    
+    def on_language_changed(self, language_selection: str):
+        """Handle language selection change."""
+        # Save the language preference
+        self.settings.set('transcription_language', language_selection)
+        
+        # Extract language code from selection (e.g., "Spanish (es)" -> "es")
+        if language_selection == "Auto-detect":
+            language_code = None
+        else:
+            # Extract code from format "Language (code)"
+            try:
+                language_code = language_selection.split('(')[1].rstrip(')')
+            except IndexError:
+                language_code = None
+        
+        # Store the language code for use during transcription
+        self.selected_language_code = language_code
+        logger.info(f"Language changed to {language_selection} (code: {language_code})")
+        print(f"Transcription language set to: {language_selection}")
     
     def update_model_status(self):
         """Update the model status label based on available models."""
