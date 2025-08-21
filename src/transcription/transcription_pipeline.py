@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List
 import logging
 import time
 from datetime import datetime
@@ -8,6 +8,7 @@ from src.transcription.whisper_manager import WhisperManager
 from src.post_processing.text_processor import TextProcessor
 from src.post_processing.advanced_text_processor import AdvancedTextProcessor
 from src.post_processing.combiner import TextCombiner
+from src.subtitles.subtitle_generator import SubtitleGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class TranscriptionPipeline:
         self.text_processor = TextProcessor()
         self.advanced_processor = AdvancedTextProcessor(remove_fillers=True, aggressive_cleaning=True)
         self.text_combiner = TextCombiner()
+        self.subtitle_generator = SubtitleGenerator()
         self.use_advanced_processing = use_advanced_processing
         print(f"Pipeline initialized successfully (Advanced processing: {'Enabled' if use_advanced_processing else 'Disabled'})")
         
@@ -204,12 +206,252 @@ class TranscriptionPipeline:
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
 
+    def process_video_with_subtitles(
+        self, 
+        video_path: str | Path,
+        output_dir: Optional[Path] = None,
+        progress_callback: Optional[Callable[[float, str], None]] = None,
+        language: Optional[str] = None,
+        subtitle_formats: Optional[List[str]] = None,
+        max_chars_per_line: int = 42
+    ) -> Dict[str, Any]:
+        """
+        Process a video file with subtitle generation support.
+        
+        This method extends the standard process_video to also generate subtitle files
+        in various formats while maintaining all existing transcription functionality.
+        
+        Args:
+            video_path: Path to the video file
+            output_dir: Directory for transcription and subtitle output
+            progress_callback: Optional callback for progress updates
+            language: Optional language code for transcription
+            subtitle_formats: List of subtitle formats to generate (e.g., ['srt', 'vtt'])
+            max_chars_per_line: Maximum characters per subtitle line
+            
+        Returns:
+            Dictionary containing process results, timing, and subtitle file paths
+        """
+        video_path = Path(video_path)
+        start_time = time.time()
+        
+        if output_dir is None:
+            output_dir = video_path.parent / "transcripts"
+            output_dir.mkdir(exist_ok=True)
+        
+        # Default to SRT if no formats specified
+        if subtitle_formats is None:
+            subtitle_formats = ['srt']
+        
+        print(f"\nStarting processing with subtitles of: {video_path.name}")
+        print(f"Output directory: {output_dir}")
+        print(f"Subtitle formats: {', '.join(subtitle_formats)}")
+        logger.info(f"Starting processing with subtitles of: {video_path.name}")
+        
+        try:
+            # Step 1: Convert video to audio
+            if progress_callback:
+                progress_callback(0.0, "Starting video conversion")
+            
+            print("\nStep 1/5: Converting video to audio...")
+            conversion_start = time.time()
+            success, audio_files = self.converter.convert_video_to_audio(
+                str(video_path),
+                lambda p: progress_callback(p * 0.3, "Converting video to audio") if progress_callback else None
+            )
+            
+            if not success or not audio_files:
+                raise RuntimeError("Failed to convert video to audio")
+            
+            conversion_time = time.time() - conversion_start
+            print(f"Conversion completed in {conversion_time:.2f} seconds")
+            print(f"Generated {len(audio_files)} audio segments")
+            logger.info(f"Audio conversion completed in {conversion_time:.2f} seconds")
+            
+            # Step 2: Transcribe audio files with timestamps
+            if progress_callback:
+                progress_callback(0.3, "Starting transcription with timestamps")
+            
+            print("\nStep 2/5: Transcribing audio with timestamps...")
+            transcription_start = time.time()
+            full_text = []
+            all_segments = []
+            detected_language = None
+            current_time_offset = 0.0
+            
+            total_segments = len(audio_files)
+            segment_metadata = self.converter.get_last_split_metadata()
+            
+            for idx, audio_file in enumerate(audio_files, 1):
+                print(f"\nProcessing segment {idx}/{total_segments}")
+                progress_base = 0.3
+                progress_per_segment = 0.4 / total_segments
+                current_progress = progress_base + (progress_per_segment * idx)
+                
+                if progress_callback:
+                    progress_callback(
+                        current_progress,
+                        f"Transcribing segment {idx}/{total_segments} with timestamps"
+                    )
+                
+                try:
+                    # Use the new method that returns timestamps
+                    result = self.whisper_manager.transcribe_audio_with_timestamps(audio_file, language=language)
+                    
+                    # Collect full text
+                    full_text.append(result['text'])
+                    
+                    # Adjust timestamps for multi-segment files
+                    if result.get('segments'):
+                        for segment in result['segments']:
+                            adjusted_segment = {
+                                'start': segment['start'] + current_time_offset,
+                                'end': segment['end'] + current_time_offset,
+                                'text': segment['text']
+                            }
+                            all_segments.append(adjusted_segment)
+                    
+                    # Update time offset for next segment
+                    if segment_metadata and idx <= len(segment_metadata):
+                        # Use actual duration from metadata if available
+                        segment_duration = segment_metadata[idx - 1].get('duration', 0)
+                        if segment_duration > 0:
+                            current_time_offset += segment_duration
+                        elif result.get('segments'):
+                            # Fallback to last segment end time
+                            current_time_offset += result['segments'][-1]['end']
+                    
+                    if not detected_language:
+                        detected_language = result['language']
+                        
+                except Exception as e:
+                    print(f"ERROR: Failed to transcribe segment {idx}: {e}")
+                    logger.error(f"Failed to transcribe segment {idx}: {e}")
+                    raise
+            
+            transcription_time = time.time() - transcription_start
+            print(f"\nTranscription completed in {transcription_time:.2f} seconds")
+            print(f"Generated {len(all_segments)} subtitle segments")
+            logger.info(f"Transcription completed in {transcription_time:.2f} seconds")
+            
+            # Step 3: Post-processing
+            if progress_callback:
+                progress_callback(0.7, "Post-processing transcription")
+            
+            print("\nStep 3/5: Post-processing transcription...")
+            processing_start = time.time()
+            
+            # Use intelligent text combination if we have multiple segments
+            if len(full_text) > 1:
+                print("Applying intelligent text combination with overlap removal...")
+                combined_text = self.text_combiner.combine_overlapping_segments(
+                    full_text, 
+                    segment_metadata,
+                    overlap_seconds=2.5
+                )
+            else:
+                print("Single segment - no deduplication needed")
+                combined_text = full_text[0] if full_text else ""
+            
+            # Apply text processing
+            processed_text = self.text_processor.process_transcript(combined_text)
+            
+            if self.use_advanced_processing:
+                print("Applying advanced post-processing...")
+                processed_text = self.advanced_processor.process_transcript(processed_text)
+            
+            processing_time = time.time() - processing_start
+            print(f"Post-processing completed in {processing_time:.2f} seconds")
+            
+            # Step 4: Generate subtitles
+            if progress_callback:
+                progress_callback(0.85, "Generating subtitle files")
+            
+            print("\nStep 4/5: Generating subtitle files...")
+            subtitle_start = time.time()
+            
+            # Configure subtitle generator
+            self.subtitle_generator.max_chars_per_line = max_chars_per_line
+            
+            # Generate subtitles in requested formats
+            subtitle_base_path = output_dir / f"{video_path.stem}_subtitle"
+            subtitle_files = self.subtitle_generator.generate_multiple_formats(
+                all_segments,
+                subtitle_base_path,
+                subtitle_formats
+            )
+            
+            subtitle_time = time.time() - subtitle_start
+            print(f"Subtitle generation completed in {subtitle_time:.2f} seconds")
+            
+            # List generated subtitle files
+            for format, file_path in subtitle_files.items():
+                if file_path:
+                    print(f"  - {format.upper()}: {file_path}")
+            
+            # Step 5: Save transcript and cleanup
+            if progress_callback:
+                progress_callback(0.95, "Saving transcript and cleaning up")
+            
+            print("\nStep 5/5: Saving transcript and cleaning up...")
+            output_file = output_dir / f"{video_path.stem}_transcript.txt"
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(processed_text)
+            
+            # Clean up temporary files
+            self.converter.cleanup_temp_files()
+            
+            # Calculate total time
+            total_time = time.time() - start_time
+            
+            # Final progress update
+            if progress_callback:
+                progress_callback(1.0, "Processing complete with subtitles")
+            
+            print(f"\nProcessing completed successfully!")
+            print(f"Total processing time: {total_time:.2f} seconds")
+            print(f"Transcript saved to: {output_file}")
+            logger.info(f"Processing with subtitles completed in {total_time:.2f} seconds")
+            
+            return {
+                'success': True,
+                'text': processed_text,
+                'language': detected_language,
+                'video_name': video_path.name,
+                'transcript_path': output_file,
+                'subtitle_files': subtitle_files,
+                'subtitle_segments': len(all_segments),
+                'processing_times': {
+                    'conversion': conversion_time,
+                    'transcription': transcription_time,
+                    'processing': processing_time,
+                    'subtitles': subtitle_time,
+                    'total': total_time
+                },
+                'deduplication_stats': self.text_combiner.get_deduplication_stats(),
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+        except Exception as e:
+            error_msg = f"Error processing video with subtitles: {e}"
+            logger.error(error_msg)
+            print(f"\nError: {error_msg}")
+            # Attempt cleanup even if processing failed
+            self.converter.cleanup_temp_files()
+            return {
+                'success': False,
+                'error': str(e),
+                'video_name': video_path.name,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+
     def get_pipeline_status(self) -> Dict[str, Any]:
         """Get comprehensive status information about the pipeline components."""
         status = {
             'whisper_info': self.whisper_manager.get_model_info(),
             'converter_available': True,
             'temp_dir': str(self.converter.output_dir),
+            'subtitle_formats_available': list(SubtitleGenerator.SUPPORTED_FORMATS.keys()),
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         

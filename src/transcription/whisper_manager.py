@@ -88,6 +88,119 @@ class WhisperManager:
         # Load new model
         self.load_model()
 
+    def transcribe_audio_with_timestamps(self, audio_path: str | Path, language: str = None) -> Dict[str, Any]:
+        """
+        Transcribe audio file and return both text and timestamp segments.
+        
+        This method returns segments with timestamps for subtitle generation
+        while maintaining the same transcription quality parameters.
+        
+        Args:
+            audio_path: Path to the audio file to transcribe
+            language: Optional language code (e.g., 'en', 'es', 'fr'). If None, auto-detect.
+            
+        Returns:
+            Dictionary containing:
+                - text: Full transcription text
+                - segments: List of segments with start, end, and text
+                - language: Detected or specified language
+                - duration: Processing duration
+                - timestamp: Processing timestamp
+                - file_size_mb: File size in MB
+        """
+        if not self.model:
+            raise RuntimeError("Model not loaded. Call load_model() first.")
+        
+        audio_path = Path(audio_path)
+        
+        # Basic validation
+        if not audio_path.exists():
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+        
+        if audio_path.suffix.lower() != '.mp3':
+            raise ValueError(f"Expected MP3 file, got: {audio_path.suffix}")
+        
+        try:
+            # Log start of transcription
+            start_time = time.time()
+            print(f"\nStarting transcription with timestamps of: {audio_path.name}")
+            logger.info(f"Starting transcription with timestamps of: {audio_path.name}")
+            
+            # Get file size for logging
+            file_size_mb = audio_path.stat().st_size / (1024 * 1024)
+            print(f"File size: {file_size_mb:.2f} MB")
+            
+            # Perform transcription with same parameters as original
+            transcribe_params = {
+                'audio': str(audio_path),
+                'task': 'transcribe',
+                'fp16': False,
+                'temperature': 0.0,
+                'compression_ratio_threshold': 2.4,
+                'logprob_threshold': -1.0,
+                'condition_on_previous_text': False,
+                'initial_prompt': None,
+                'suppress_blank': True,
+                'suppress_tokens': [-1],
+            }
+            
+            # Add language parameter if specified
+            if language:
+                transcribe_params['language'] = language
+                print(f"Transcribing in {language} language")
+                logger.info(f"Using specified language: {language}")
+            else:
+                print("Auto-detecting language...")
+                logger.info("Language auto-detection enabled")
+            
+            result = self.model.transcribe(**transcribe_params)
+            
+            # Extract segments with timestamps
+            segments = []
+            if 'segments' in result:
+                for segment in result['segments']:
+                    segments.append({
+                        'start': segment['start'],
+                        'end': segment['end'],
+                        'text': segment['text'].strip()
+                    })
+                logger.info(f"Extracted {len(segments)} segments with timestamps")
+            
+            # Get the raw transcription text
+            raw_text = result['text']
+            
+            # Apply repetition detection and cleanup
+            cleaned_text = self._clean_transcription_text(raw_text)
+            
+            # Check if cleaning was applied
+            if cleaned_text != raw_text:
+                print(f"Repetition detected and cleaned in: {audio_path.name}")
+                logger.info(f"Repetition detected and cleaned in transcription of: {audio_path.name}")
+            
+            # Calculate duration and log completion
+            duration = time.time() - start_time
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            print(f"Transcription completed in {duration:.2f} seconds")
+            print(f"Detected language: {result['language']}")
+            print(f"Generated {len(segments)} subtitle segments")
+            logger.info(f"Transcription of {audio_path.name} completed in {duration:.2f} seconds")
+            
+            return {
+                'text': cleaned_text,
+                'segments': segments,
+                'language': result['language'],
+                'duration': duration,
+                'timestamp': timestamp,
+                'file_size_mb': file_size_mb
+            }
+            
+        except Exception as e:
+            error_msg = f"Transcription failed for {audio_path.name}: {str(e)}"
+            logger.error(error_msg)
+            print(f"Error: {error_msg}")
+            raise RuntimeError(error_msg)
+    
     def transcribe_audio(self, audio_path: str | Path, language: str = None) -> Dict[str, Any]:
         """
         Transcribe a single MP3 audio file with enhanced repetition prevention.

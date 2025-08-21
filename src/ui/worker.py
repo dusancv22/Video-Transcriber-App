@@ -13,7 +13,8 @@ class TranscriptionWorker(QThread):
     all_completed = pyqtSignal()
     error_occurred = pyqtSignal(str, str)
 
-    def __init__(self, pipeline, queue_manager, output_dir, language_code=None):
+    def __init__(self, pipeline, queue_manager, output_dir, language_code=None, 
+                 subtitle_formats=None, max_chars_per_line=42):
         """Initialize the worker thread.
         
         Args:
@@ -21,17 +22,25 @@ class TranscriptionWorker(QThread):
             queue_manager: The queue manager for handling files
             output_dir: Directory for output files
             language_code: Optional language code for transcription (e.g., 'en', 'es')
+            subtitle_formats: List of subtitle formats to generate (e.g., ['srt', 'vtt'])
+            max_chars_per_line: Maximum characters per subtitle line
         """
         super().__init__()
         self.pipeline = pipeline
         self.queue_manager = queue_manager
         self.output_dir = output_dir
         self.language_code = language_code
+        self.subtitle_formats = subtitle_formats or []
+        self.max_chars_per_line = max_chars_per_line
         self.is_paused = False
         self._stop = False
         
         logger.info(f"TranscriptionWorker initialized with language: {language_code or 'auto-detect'}")
-        print(f"Transcription worker initialized (Language: {language_code or 'auto-detect'})")
+        if self.subtitle_formats:
+            logger.info(f"Subtitle generation enabled: {', '.join(self.subtitle_formats)}")
+            print(f"Transcription worker initialized (Language: {language_code or 'auto-detect'}, Subtitles: {', '.join(self.subtitle_formats)})")
+        else:
+            print(f"Transcription worker initialized (Language: {language_code or 'auto-detect'})")
 
     def run(self):
         """Main processing loop with enhanced progress reporting."""
@@ -62,13 +71,25 @@ class TranscriptionWorker(QThread):
                         if not self.is_paused:
                             self.progress_updated.emit(progress, status)
 
-                    # Process the video file
-                    result = self.pipeline.process_video(
-                        video_path=next_item.file_path,
-                        output_dir=self.output_dir,
-                        progress_callback=progress_callback,
-                        language=self.language_code
-                    )
+                    # Process the video file with or without subtitles
+                    if self.subtitle_formats:
+                        # Use subtitle-aware processing
+                        result = self.pipeline.process_video_with_subtitles(
+                            video_path=next_item.file_path,
+                            output_dir=self.output_dir,
+                            progress_callback=progress_callback,
+                            language=self.language_code,
+                            subtitle_formats=self.subtitle_formats,
+                            max_chars_per_line=self.max_chars_per_line
+                        )
+                    else:
+                        # Use standard processing
+                        result = self.pipeline.process_video(
+                            video_path=next_item.file_path,
+                            output_dir=self.output_dir,
+                            progress_callback=progress_callback,
+                            language=self.language_code
+                        )
 
                     # Calculate processing time
                     processing_time = time.time() - start_time
@@ -81,14 +102,23 @@ class TranscriptionWorker(QThread):
                         'processing_time': processing_time,
                         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }
+                    
+                    # Add subtitle file info if generated
+                    if result.get('subtitle_files'):
+                        completion_info['subtitle_files'] = result['subtitle_files']
+                        completion_info['subtitle_segments'] = result.get('subtitle_segments', 0)
 
                     # Emit completion signal
                     self.file_completed.emit(completion_info)
 
                     # Log completion status
                     if result['success']:
-                        print(f"Successfully processed {next_item.file_path.name} in {processing_time:.2f} seconds")
-                        logger.info(f"Successfully processed {next_item.file_path.name} in {processing_time:.2f} seconds")
+                        success_msg = f"Successfully processed {next_item.file_path.name} in {processing_time:.2f} seconds"
+                        if result.get('subtitle_files'):
+                            subtitle_count = len([f for f in result['subtitle_files'].values() if f])
+                            success_msg += f" (Generated {subtitle_count} subtitle file{'s' if subtitle_count != 1 else ''})"
+                        print(success_msg)
+                        logger.info(success_msg)
                     else:
                         error_msg = result.get('error', 'Unknown error')
                         print(f"Failed to process {next_item.file_path.name}: {error_msg}")

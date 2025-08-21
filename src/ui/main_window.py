@@ -6,7 +6,8 @@ This replaces the card-based design with a clean, efficient layout
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QLabel, QFileDialog, QProgressBar,
-    QListWidget, QListWidgetItem, QMessageBox, QComboBox
+    QListWidget, QListWidgetItem, QMessageBox, QComboBox,
+    QCheckBox, QSpinBox
 )
 from PyQt6.QtCore import Qt, QTimer, QThread
 from PyQt6.QtGui import QIcon, QFont
@@ -241,6 +242,95 @@ class MainWindow(QMainWindow):
         
         model_section.addStretch()
         layout.addLayout(model_section)
+        
+        # Subtitle export section
+        subtitle_section = QHBoxLayout()
+        subtitle_section.setSpacing(8)
+        
+        # Subtitle export checkbox
+        self.subtitle_export_checkbox = QCheckBox("Export Subtitles")
+        self.subtitle_export_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {ModernTheme.COLORS['text_primary']};
+                font-size: 12px;
+                padding: 4px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 2px solid {ModernTheme.COLORS['outline']};
+                border-radius: 3px;
+                background-color: {ModernTheme.COLORS['surface']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {ModernTheme.COLORS['success']};
+                border-color: {ModernTheme.COLORS['success']};
+            }}
+        """)
+        self.subtitle_export_checkbox.stateChanged.connect(self.on_subtitle_export_changed)
+        subtitle_section.addWidget(self.subtitle_export_checkbox)
+        
+        # Subtitle format checkboxes (initially hidden)
+        self.subtitle_formats_group = QWidget()
+        subtitle_formats_layout = QHBoxLayout(self.subtitle_formats_group)
+        subtitle_formats_layout.setContentsMargins(0, 0, 0, 0)
+        subtitle_formats_layout.setSpacing(8)
+        
+        format_label = QLabel("Formats:")
+        format_label.setStyleSheet(f"""
+            color: {ModernTheme.COLORS['text_secondary']};
+            font-size: 12px;
+        """)
+        subtitle_formats_layout.addWidget(format_label)
+        
+        # Format checkboxes
+        self.srt_checkbox = QCheckBox("SRT")
+        self.srt_checkbox.setChecked(True)
+        self.vtt_checkbox = QCheckBox("VTT")
+        self.ass_checkbox = QCheckBox("ASS")
+        
+        for checkbox in [self.srt_checkbox, self.vtt_checkbox, self.ass_checkbox]:
+            checkbox.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {ModernTheme.COLORS['text_secondary']};
+                    font-size: 11px;
+                }}
+                QCheckBox::indicator {{
+                    width: 14px;
+                    height: 14px;
+                }}
+            """)
+            subtitle_formats_layout.addWidget(checkbox)
+        
+        # Max chars per line spinbox
+        self.max_chars_label = QLabel("Max chars/line:")
+        self.max_chars_label.setStyleSheet(f"""
+            color: {ModernTheme.COLORS['text_secondary']};
+            font-size: 12px;
+            margin-left: 12px;
+        """)
+        subtitle_formats_layout.addWidget(self.max_chars_label)
+        
+        self.max_chars_spinbox = QSpinBox()
+        self.max_chars_spinbox.setRange(20, 80)
+        self.max_chars_spinbox.setValue(42)
+        self.max_chars_spinbox.setStyleSheet(f"""
+            QSpinBox {{
+                background-color: {ModernTheme.COLORS['surface']};
+                border: 1px solid {ModernTheme.COLORS['outline']};
+                border-radius: {ModernTheme.RADIUS['sm']};
+                padding: 2px 4px;
+                font-size: 11px;
+                max-width: 60px;
+            }}
+        """)
+        subtitle_formats_layout.addWidget(self.max_chars_spinbox)
+        
+        self.subtitle_formats_group.hide()
+        subtitle_section.addWidget(self.subtitle_formats_group)
+        
+        subtitle_section.addStretch()
+        layout.addLayout(subtitle_section)
         
         # Update model status based on detected models
         self.update_model_status()
@@ -487,12 +577,18 @@ class MainWindow(QMainWindow):
         self.progress_group.show()
         
         try:
-            # Create and setup worker with language preference
+            # Get subtitle settings
+            subtitle_formats = self.get_selected_subtitle_formats()
+            max_chars_per_line = self.max_chars_spinbox.value() if subtitle_formats else 42
+            
+            # Create and setup worker with language and subtitle preferences
             self.worker = TranscriptionWorker(
                 self.pipeline,
                 self.queue_manager,
                 self.output_directory,
-                language_code=self.selected_language_code
+                language_code=self.selected_language_code,
+                subtitle_formats=subtitle_formats,
+                max_chars_per_line=max_chars_per_line
             )
             
             # Connect signals
@@ -850,6 +946,25 @@ class MainWindow(QMainWindow):
         if self.pipeline:
             self.pipeline = None  # Force re-initialization with new model
             print(f"Model size changed to {model_size}. Will reload on next use.")
+    
+    def on_subtitle_export_changed(self, state):
+        """Handle subtitle export checkbox toggle."""
+        if state == 2:  # Checked
+            self.subtitle_formats_group.show()
+        else:
+            self.subtitle_formats_group.hide()
+    
+    def get_selected_subtitle_formats(self):
+        """Get list of selected subtitle formats."""
+        formats = []
+        if self.subtitle_export_checkbox.isChecked():
+            if self.srt_checkbox.isChecked():
+                formats.append('srt')
+            if self.vtt_checkbox.isChecked():
+                formats.append('vtt')
+            if self.ass_checkbox.isChecked():
+                formats.append('ass')
+        return formats
     
     def on_language_changed(self, language_selection: str):
         """Handle language selection change."""
