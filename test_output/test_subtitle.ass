@@ -14,6 +14,7 @@ Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:00.00,0:00:02.50,Default,,0,0,0,,Hello, this is a test video.
 Dialogue: 0,0:00:02.50,0:00:05.00,Default,,0,0,0,,We are testing subtitle generation.
-Dialogue: 0,0:00:05.00,0:00:08.00,Default,,0,0,0,,This should create proper SRT and VTT\Nfiles.
+Dialogue: 0,0:00:05.00,0:00:08.00,Default,,0,0,0,,This should create\Nproper SRT and VTT files.
 Dialogue: 0,0:00:08.00,0:00:11.00,Default,,0,0,0,,Each subtitle should be properly timed.
-Dialogue: 0,0:00:11.00,0:00:14.00,Default,,0,0,0,,The text should wrap at appropriate\Ncharacter limits.
+Dialogue: 0,0:00:11.00,0:00:14.00,Default,,0,0,0,,The text should wrap at\Nappropriate character limits.
+Dialogue: 0,0:00:14.00,0:00:18.00,Default,,0,0,0,,Ayer antes de irme a la cama pensé en\Nen bicicleta por el pueblo.

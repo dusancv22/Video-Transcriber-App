@@ -8,8 +8,8 @@ We are testing subtitle generation.
 
 3
 00:00:05,000 --> 00:00:08,000
-This should create proper SRT and VTT
-files.
+This should create
+proper SRT and VTT files.
 
 4
 00:00:08,000 --> 00:00:11,000
@@ -17,6 +17,11 @@ Each subtitle should be properly timed.
 
 5
 00:00:11,000 --> 00:00:14,000
-The text should wrap at appropriate
-character limits.
+The text should wrap at
+appropriate character limits.
+
+6
+00:00:14,000 --> 00:00:18,000
+Ayer antes de irme a la cama pensé en
+en bicicleta por el pueblo.
 

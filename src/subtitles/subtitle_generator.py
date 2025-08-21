@@ -23,11 +23,11 @@ class SubtitleGenerator:
         
         Args:
             max_chars_per_line: Maximum characters per subtitle line
-            max_lines_per_subtitle: Maximum lines per subtitle entry
+            max_lines_per_subtitle: Maximum lines per subtitle entry (standard is 2)
         """
         self.max_chars_per_line = max_chars_per_line
-        self.max_lines_per_subtitle = max_lines_per_subtitle
-        logger.info(f"SubtitleGenerator initialized with {max_chars_per_line} chars/line")
+        self.max_lines_per_subtitle = 2  # Force 2 lines max as per subtitle standards
+        logger.info(f"SubtitleGenerator initialized with {max_chars_per_line} chars/line, max 2 lines")
     
     def generate_subtitles(
         self, 
@@ -118,50 +118,88 @@ class SubtitleGenerator:
         return '\\N'.join(lines)
     
     def _split_into_lines(self, text: str) -> List[str]:
-        """Split text into lines respecting max characters and natural breaks.
+        """Split text into lines respecting max characters and subtitle standards.
+        
+        Enforces maximum 2 lines per subtitle as per industry standards.
+        If text is too long, it will be properly fitted into 2 lines.
         
         Args:
             text: Text to split
             
         Returns:
-            List of text lines
+            List of text lines (maximum 2 lines)
         """
         words = text.split()
         if not words:
             return []
         
-        lines = []
-        current_line = []
-        current_length = 0
+        # Calculate total text length
+        total_length = sum(len(word) for word in words) + len(words) - 1
         
-        for word in words:
-            word_length = len(word)
+        # If text fits in one line, return as is
+        if total_length <= self.max_chars_per_line:
+            return [' '.join(words)]
+        
+        # Try to split into 2 lines evenly
+        # Find the best split point that balances both lines
+        best_split = len(words) // 2
+        best_balance = float('inf')
+        
+        for split_point in range(1, len(words)):
+            line1 = ' '.join(words[:split_point])
+            line2 = ' '.join(words[split_point:])
             
-            # Check if adding this word exceeds the limit
-            if current_length > 0 and current_length + word_length + 1 > self.max_chars_per_line:
-                # Save current line and start new one
-                lines.append(' '.join(current_line))
-                current_line = [word]
-                current_length = word_length
+            # Skip if either line is too long
+            if len(line1) > self.max_chars_per_line or len(line2) > self.max_chars_per_line:
+                continue
+            
+            # Calculate balance (difference in line lengths)
+            balance = abs(len(line1) - len(line2))
+            
+            # Prefer splits that create more balanced lines
+            if balance < best_balance:
+                best_balance = balance
+                best_split = split_point
+        
+        # Create the two lines
+        line1 = ' '.join(words[:best_split])
+        line2 = ' '.join(words[best_split:])
+        
+        # If line2 is still too long, truncate it
+        if len(line2) > self.max_chars_per_line:
+            line2 = line2[:self.max_chars_per_line - 3] + '...'
+        
+        # If line1 is too long (rare case), adjust the split
+        if len(line1) > self.max_chars_per_line:
+            # Revert to simple split
+            lines = []
+            current_line = []
+            current_length = 0
+            
+            for i, word in enumerate(words):
+                word_length = len(word)
                 
-                # Check if we've reached max lines
-                if len(lines) >= self.max_lines_per_subtitle:
-                    # Combine remaining words and truncate if necessary
-                    remaining = ' '.join([word] + words[words.index(word) + 1:])
-                    if len(remaining) > self.max_chars_per_line:
-                        remaining = remaining[:self.max_chars_per_line - 3] + '...'
-                    lines.append(remaining)
-                    break
-            else:
-                # Add word to current line
-                current_line.append(word)
-                current_length += word_length + (1 if current_length > 0 else 0)
+                if current_length > 0 and current_length + word_length + 1 > self.max_chars_per_line:
+                    lines.append(' '.join(current_line))
+                    if len(lines) >= 2:  # Stop at 2 lines
+                        # Put remaining text in line 2 and truncate if needed
+                        remaining = ' '.join(words[i:])  # Use index instead of words.index
+                        if len(remaining) > self.max_chars_per_line:
+                            remaining = remaining[:self.max_chars_per_line - 3] + '...'
+                        lines[1] = remaining
+                        return lines[:2]
+                    current_line = [word]
+                    current_length = word_length
+                else:
+                    current_line.append(word)
+                    current_length += word_length + (1 if current_length > 0 else 0)
+            
+            if current_line and len(lines) < 2:
+                lines.append(' '.join(current_line))
+            
+            return lines[:2]  # Ensure maximum 2 lines
         
-        # Add last line if not already added
-        if current_line and len(lines) < self.max_lines_per_subtitle:
-            lines.append(' '.join(current_line))
-        
-        return lines
+        return [line1, line2] if line2 else [line1]
     
     def generate_multiple_formats(
         self,

@@ -14,6 +14,8 @@ def test_subtitle_generation():
         {'start': 5.0, 'end': 8.0, 'text': 'This should create proper SRT and VTT files.'},
         {'start': 8.0, 'end': 11.0, 'text': 'Each subtitle should be properly timed.'},
         {'start': 11.0, 'end': 14.0, 'text': 'The text should wrap at appropriate character limits.'},
+        # Test case that would create 3 lines with old code (like the Spanish example)
+        {'start': 14.0, 'end': 18.0, 'text': 'Ayer antes de irme a la cama pensé en despertarme pronto e ir a dar una vuelta en bicicleta por el pueblo.'},
     ]
     
     # Initialize subtitle generator
@@ -29,6 +31,7 @@ def test_subtitle_generation():
     
     print("Testing subtitle generation...")
     print(f"Generating {len(test_segments)} segments in {len(formats)} formats")
+    print("Note: Testing 2-line maximum enforcement for long text")
     
     generated_files = generator.generate_multiple_formats(
         test_segments,
