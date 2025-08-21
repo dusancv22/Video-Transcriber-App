@@ -143,8 +143,6 @@ class WhisperManager:
                 'suppress_blank': True,
                 'suppress_tokens': [-1],
                 'word_timestamps': True,  # Enable word-level timestamps for better accuracy
-                'prepend_punctuations': "\"'"¿([{-",
-                'append_punctuations': "\"'.。,，!！?？:：")]}、",
             }
             
             # Add language parameter if specified
