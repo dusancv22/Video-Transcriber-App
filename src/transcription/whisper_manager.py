@@ -130,7 +130,7 @@ class WhisperManager:
             file_size_mb = audio_path.stat().st_size / (1024 * 1024)
             print(f"File size: {file_size_mb:.2f} MB")
             
-            # Perform transcription with same parameters as original
+            # Perform transcription with word-level timestamps for better accuracy
             transcribe_params = {
                 'audio': str(audio_path),
                 'task': 'transcribe',
@@ -142,6 +142,9 @@ class WhisperManager:
                 'initial_prompt': None,
                 'suppress_blank': True,
                 'suppress_tokens': [-1],
+                'word_timestamps': True,  # Enable word-level timestamps for better accuracy
+                'prepend_punctuations': "\"'"¿([{-",
+                'append_punctuations': "\"'.。,，!！?？:：")]}、",
             }
             
             # Add language parameter if specified
@@ -155,15 +158,23 @@ class WhisperManager:
             
             result = self.model.transcribe(**transcribe_params)
             
-            # Extract segments with timestamps
+            # Extract segments with timestamps - now with better timing
             segments = []
             if 'segments' in result:
                 for segment in result['segments']:
-                    segments.append({
-                        'start': segment['start'],
-                        'end': segment['end'],
-                        'text': segment['text'].strip()
-                    })
+                    # Use the actual segment timing from Whisper
+                    # These should be more accurate with word_timestamps enabled
+                    segment_text = segment['text'].strip()
+                    if segment_text:  # Only add non-empty segments
+                        segments.append({
+                            'start': segment['start'],
+                            'end': segment['end'],
+                            'text': segment_text
+                        })
+                
+                # Post-process segments to merge very short ones and fix timing issues
+                segments = self._optimize_segment_timing(segments)
+                
                 logger.info(f"Extracted {len(segments)} segments with timestamps")
             
             # Get the raw transcription text
@@ -200,6 +211,49 @@ class WhisperManager:
             logger.error(error_msg)
             print(f"Error: {error_msg}")
             raise RuntimeError(error_msg)
+    
+    def _optimize_segment_timing(self, segments):
+        """Optimize segment timing by merging very short segments and fixing gaps.
+        
+        Args:
+            segments: List of segments from Whisper
+            
+        Returns:
+            Optimized list of segments
+        """
+        if not segments:
+            return segments
+        
+        optimized = []
+        i = 0
+        
+        while i < len(segments):
+            current = segments[i].copy()
+            
+            # Check if this segment is very short (less than 1 second)
+            duration = current['end'] - current['start']
+            
+            if duration < 1.0 and i + 1 < len(segments):
+                # Check if we should merge with next segment
+                next_segment = segments[i + 1]
+                gap_to_next = next_segment['start'] - current['end']
+                
+                # Merge if gap is small (less than 0.5 seconds)
+                if gap_to_next < 0.5:
+                    # Merge segments
+                    current['end'] = next_segment['end']
+                    current['text'] = current['text'] + ' ' + next_segment['text']
+                    i += 2  # Skip next segment since we merged it
+                else:
+                    # Keep segment as is
+                    optimized.append(current)
+                    i += 1
+            else:
+                # Keep segment as is
+                optimized.append(current)
+                i += 1
+        
+        return optimized
     
     def transcribe_audio(self, audio_path: str | Path, language: str = None) -> Dict[str, Any]:
         """
