@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import logging
 import re
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class SubtitleGenerator:
         """
         self.max_chars_per_line = max_chars_per_line
         self.max_lines_per_subtitle = 2  # Force 2 lines max as per subtitle standards
+        self.max_chars_per_subtitle = max_chars_per_line * 2  # Total chars for 2 lines
         logger.info(f"SubtitleGenerator initialized with {max_chars_per_line} chars/line, max 2 lines")
     
     def generate_subtitles(
@@ -39,6 +41,9 @@ class SubtitleGenerator:
         max_duration: float = 7.0
     ) -> Path:
         """Generate subtitle file from segments with timestamps.
+        
+        This method now splits long segments into multiple subtitles while
+        preserving accurate timing and avoiding text truncation.
         
         Args:
             segments: List of dictionaries with 'start', 'end', 'text' keys
@@ -59,31 +64,56 @@ class SubtitleGenerator:
         # Create pysubs2 subtitle file
         subs = pysubs2.SSAFile()
         
-        for i, segment in enumerate(segments):
+        for segment in segments:
             # Apply time offset if needed
             start_time = segment['start'] + time_offset
             end_time = segment['end'] + time_offset
+            segment_duration = end_time - start_time
             
-            # Enforce duration constraints
-            duration = end_time - start_time
-            if duration < min_duration:
-                end_time = start_time + min_duration
-            elif duration > max_duration:
-                end_time = start_time + max_duration
+            # Clean and prepare text
+            text = segment['text'].strip()
+            if not text:
+                continue
             
-            # Format text for subtitles
-            formatted_text = self._format_subtitle_text(segment['text'])
+            # Split long text into multiple subtitles if needed
+            subtitle_texts = self._split_text_for_subtitles(text)
             
-            # Create subtitle event
-            event = pysubs2.SSAEvent(
-                start=int(start_time * 1000),  # Convert to milliseconds
-                end=int(end_time * 1000),
-                text=formatted_text
-            )
-            subs.append(event)
-            
-            if (i + 1) % 100 == 0:
-                logger.debug(f"Processed {i + 1}/{len(segments)} segments")
+            if len(subtitle_texts) == 1:
+                # Single subtitle - use original timing
+                # Enforce duration constraints
+                if segment_duration < min_duration:
+                    end_time = start_time + min_duration
+                elif segment_duration > max_duration:
+                    end_time = start_time + max_duration
+                
+                event = pysubs2.SSAEvent(
+                    start=int(start_time * 1000),
+                    end=int(end_time * 1000),
+                    text=subtitle_texts[0]
+                )
+                subs.append(event)
+            else:
+                # Multiple subtitles needed - split time proportionally
+                # Calculate time per subtitle based on reading speed
+                time_per_subtitle = segment_duration / len(subtitle_texts)
+                
+                # Ensure each subtitle has reasonable duration
+                time_per_subtitle = max(min_duration, min(time_per_subtitle, max_duration))
+                
+                for i, subtitle_text in enumerate(subtitle_texts):
+                    sub_start = start_time + (i * time_per_subtitle)
+                    sub_end = min(sub_start + time_per_subtitle, end_time)
+                    
+                    # Make sure we don't exceed the original segment end time
+                    if i == len(subtitle_texts) - 1:
+                        sub_end = end_time
+                    
+                    event = pysubs2.SSAEvent(
+                        start=int(sub_start * 1000),
+                        end=int(sub_end * 1000),
+                        text=subtitle_text
+                    )
+                    subs.append(event)
         
         # Generate output filename with extension
         output_file = output_path.with_suffix(f'.{format}')
@@ -94,54 +124,75 @@ class SubtitleGenerator:
         
         return output_file
     
+    def _split_text_for_subtitles(self, text: str) -> List[str]:
+        """Split text into subtitle-sized chunks without truncation.
+        
+        If text fits in one subtitle (2 lines), return as-is.
+        If text is too long, split into multiple subtitles.
+        
+        Args:
+            text: Raw text to split
+            
+        Returns:
+            List of formatted subtitle texts
+        """
+        # Clean up text
+        text = re.sub(r'\s+', ' ', text.strip())
+        
+        # Calculate if text fits in one subtitle
+        if len(text) <= self.max_chars_per_subtitle:
+            # Text fits - format into 1 or 2 lines
+            return [self._format_subtitle_text(text)]
+        
+        # Text too long - need to split into multiple subtitles
+        words = text.split()
+        subtitles = []
+        current_subtitle_words = []
+        current_length = 0
+        
+        for word in words:
+            word_length = len(word)
+            
+            # Check if adding this word would exceed subtitle limit
+            if current_length > 0 and current_length + word_length + 1 > self.max_chars_per_subtitle:
+                # Create subtitle from current words
+                subtitle_text = ' '.join(current_subtitle_words)
+                subtitles.append(self._format_subtitle_text(subtitle_text))
+                
+                # Start new subtitle with this word
+                current_subtitle_words = [word]
+                current_length = word_length
+            else:
+                # Add word to current subtitle
+                current_subtitle_words.append(word)
+                current_length += word_length + (1 if current_length > 0 else 0)
+        
+        # Don't forget the last subtitle
+        if current_subtitle_words:
+            subtitle_text = ' '.join(current_subtitle_words)
+            subtitles.append(self._format_subtitle_text(subtitle_text))
+        
+        return subtitles
+    
     def _format_subtitle_text(self, text: str) -> str:
         """Format text for optimal subtitle display with line breaks.
         
+        Takes text that fits in a subtitle and formats it into 1 or 2 lines.
+        
         Args:
-            text: Raw text to format
+            text: Text to format (must fit in subtitle limits)
             
         Returns:
             Formatted text with appropriate line breaks
         """
-        # Clean up text
-        text = text.strip()
-        if not text:
-            return ""
+        # If text fits in one line, return as-is
+        if len(text) <= self.max_chars_per_line:
+            return text
         
-        # Remove multiple spaces
-        text = re.sub(r'\s+', ' ', text)
-        
-        # Split into optimal lines
-        lines = self._split_into_lines(text)
-        
-        # Join with subtitle line break (\\N for ASS/SSA formats)
-        return '\\N'.join(lines)
-    
-    def _split_into_lines(self, text: str) -> List[str]:
-        """Split text into lines respecting max characters and subtitle standards.
-        
-        Enforces maximum 2 lines per subtitle as per industry standards.
-        If text is too long, it will be properly fitted into 2 lines.
-        
-        Args:
-            text: Text to split
-            
-        Returns:
-            List of text lines (maximum 2 lines)
-        """
+        # Split into 2 lines - try to balance them
         words = text.split()
-        if not words:
-            return []
         
-        # Calculate total text length
-        total_length = sum(len(word) for word in words) + len(words) - 1
-        
-        # If text fits in one line, return as is
-        if total_length <= self.max_chars_per_line:
-            return [' '.join(words)]
-        
-        # Try to split into 2 lines evenly
-        # Find the best split point that balances both lines
+        # Find best split point for balanced lines
         best_split = len(words) // 2
         best_balance = float('inf')
         
@@ -149,57 +200,22 @@ class SubtitleGenerator:
             line1 = ' '.join(words[:split_point])
             line2 = ' '.join(words[split_point:])
             
-            # Skip if either line is too long
-            if len(line1) > self.max_chars_per_line or len(line2) > self.max_chars_per_line:
-                continue
-            
-            # Calculate balance (difference in line lengths)
-            balance = abs(len(line1) - len(line2))
-            
-            # Prefer splits that create more balanced lines
-            if balance < best_balance:
-                best_balance = balance
-                best_split = split_point
+            # Check if both lines fit
+            if len(line1) <= self.max_chars_per_line and len(line2) <= self.max_chars_per_line:
+                # Calculate balance (difference in line lengths)
+                balance = abs(len(line1) - len(line2))
+                
+                # Prefer splits that create more balanced lines
+                if balance < best_balance:
+                    best_balance = balance
+                    best_split = split_point
         
-        # Create the two lines
+        # Create the two lines with the best split
         line1 = ' '.join(words[:best_split])
         line2 = ' '.join(words[best_split:])
         
-        # If line2 is still too long, truncate it
-        if len(line2) > self.max_chars_per_line:
-            line2 = line2[:self.max_chars_per_line - 3] + '...'
-        
-        # If line1 is too long (rare case), adjust the split
-        if len(line1) > self.max_chars_per_line:
-            # Revert to simple split
-            lines = []
-            current_line = []
-            current_length = 0
-            
-            for i, word in enumerate(words):
-                word_length = len(word)
-                
-                if current_length > 0 and current_length + word_length + 1 > self.max_chars_per_line:
-                    lines.append(' '.join(current_line))
-                    if len(lines) >= 2:  # Stop at 2 lines
-                        # Put remaining text in line 2 and truncate if needed
-                        remaining = ' '.join(words[i:])  # Use index instead of words.index
-                        if len(remaining) > self.max_chars_per_line:
-                            remaining = remaining[:self.max_chars_per_line - 3] + '...'
-                        lines[1] = remaining
-                        return lines[:2]
-                    current_line = [word]
-                    current_length = word_length
-                else:
-                    current_line.append(word)
-                    current_length += word_length + (1 if current_length > 0 else 0)
-            
-            if current_line and len(lines) < 2:
-                lines.append(' '.join(current_line))
-            
-            return lines[:2]  # Ensure maximum 2 lines
-        
-        return [line1, line2] if line2 else [line1]
+        # Join with subtitle line break (\\N for ASS/SSA formats)
+        return f"{line1}\\N{line2}" if line2 else line1
     
     def generate_multiple_formats(
         self,
@@ -294,9 +310,18 @@ class SubtitleGenerator:
             
             # Check if current segment is too short and can be merged
             if current_duration < min_duration:
-                # Merge with next segment
-                current['end'] = next_segment['end']
-                current['text'] = current['text'] + ' ' + next_segment['text']
+                # Check if there's a gap between segments
+                gap = next_segment['start'] - current['end']
+                
+                # Only merge if gap is small (< 0.5 seconds)
+                if gap < 0.5:
+                    # Merge with next segment
+                    current['end'] = next_segment['end']
+                    current['text'] = current['text'] + ' ' + next_segment['text']
+                else:
+                    # Keep segments separate despite short duration
+                    merged.append(current)
+                    current = next_segment.copy()
             else:
                 # Keep current segment and move to next
                 merged.append(current)

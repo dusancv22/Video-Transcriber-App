@@ -7,15 +7,17 @@ from src.subtitles.subtitle_generator import SubtitleGenerator
 def test_subtitle_generation():
     """Test basic subtitle generation functionality."""
     
-    # Create test segments (simulating Whisper output)
+    # Create test segments (simulating realistic Whisper output with accurate timestamps)
     test_segments = [
         {'start': 0.0, 'end': 2.5, 'text': 'Hello, this is a test video.'},
         {'start': 2.5, 'end': 5.0, 'text': 'We are testing subtitle generation.'},
         {'start': 5.0, 'end': 8.0, 'text': 'This should create proper SRT and VTT files.'},
         {'start': 8.0, 'end': 11.0, 'text': 'Each subtitle should be properly timed.'},
         {'start': 11.0, 'end': 14.0, 'text': 'The text should wrap at appropriate character limits.'},
-        # Test case that would create 3 lines with old code (like the Spanish example)
-        {'start': 14.0, 'end': 18.0, 'text': 'Ayer antes de irme a la cama pensé en despertarme pronto e ir a dar una vuelta en bicicleta por el pueblo.'},
+        # Test long segment that needs to be split into multiple subtitles
+        {'start': 30.0, 'end': 37.0, 'text': 'Ayer antes de irme a la cama pensé en despertarme pronto e ir a dar una vuelta en bicicleta por el pueblo para hacer ejercicio.'},
+        # Test very long segment
+        {'start': 47.42, 'end': 54.42, 'text': 'No hay nada mejor que un buen vaso de agua fresquita por la mañana cuando te levantas temprano para empezar el día con energía.'},
     ]
     
     # Initialize subtitle generator
