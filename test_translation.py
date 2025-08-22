@@ -35,11 +35,11 @@ def test_basic_translation():
             print(f"EN: {translated}")
             print()
         
-        print("✓ Basic translation test passed!")
+        print("[PASS] Basic translation test passed!")
         return True
         
     except Exception as e:
-        print(f"✗ Basic translation test failed: {e}")
+        print(f"[FAIL] Basic translation test failed: {e}")
         return False
 
 def test_subtitle_segments():
@@ -68,11 +68,11 @@ def test_subtitle_segments():
             print(f"Translated: {seg['translated_text']}")
             print()
         
-        print("✓ Subtitle segment translation test passed!")
+        print("[PASS] Subtitle segment translation test passed!")
         return True
         
     except Exception as e:
-        print(f"✗ Subtitle segment translation test failed: {e}")
+        print(f"[FAIL] Subtitle segment translation test failed: {e}")
         return False
 
 def test_context_translation():
@@ -99,11 +99,11 @@ def test_context_translation():
             print(f"Translated: {seg['translated_text']}")
             print()
         
-        print("✓ Context-aware translation test passed!")
+        print("[PASS] Context-aware translation test passed!")
         return True
         
     except Exception as e:
-        print(f"✗ Context-aware translation test failed: {e}")
+        print(f"[FAIL] Context-aware translation test failed: {e}")
         return False
 
 def main():
@@ -134,9 +134,9 @@ def main():
     print(f"TEST SUMMARY: {tests_passed}/{tests_total} tests passed")
     
     if tests_passed == tests_total:
-        print("✓ All tests passed! Translation module is working correctly.")
+        print("[PASS] All tests passed! Translation module is working correctly.")
     else:
-        print(f"✗ {tests_total - tests_passed} test(s) failed. Please check the errors above.")
+        print(f"[FAIL] {tests_total - tests_passed} test(s) failed. Please check the errors above.")
     
     print("=" * 60)
 
