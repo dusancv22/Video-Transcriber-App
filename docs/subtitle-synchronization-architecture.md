@@ -1,8 +1,8 @@
-# Subtitle Synchronization Architecture
+# Subtitle Synchronization & Translation Architecture
 
 ## Overview
 
-This document explains the technical architecture of the subtitle synchronization system in the Video Transcriber App, specifically how word-level timestamps are generated and used to create perfectly synchronized subtitles.
+This document explains the technical architecture of the subtitle synchronization and translation system in the Video Transcriber App, including word-level timestamp generation and multi-language subtitle translation capabilities.
 
 ## The Problem
 
@@ -264,6 +264,84 @@ word_timestamps = True
 vad_filter = False  # Disabled on Windows
 ```
 
+## Subtitle Translation System
+
+### Overview
+The app now includes a comprehensive subtitle translation system that can translate generated subtitles to over 20 languages using Helsinki-NLP OPUS-MT models.
+
+### Architecture Components
+
+#### 1. Translation Module (`src/translation/`)
+
+**SubtitleTranslator** (`subtitle_translator.py`):
+- Main orchestrator for subtitle translation
+- Preserves all timestamps while translating text content
+- Supports SRT, VTT, ASS, and other subtitle formats
+- Auto-detects source language when set to "auto"
+
+**HelsinkiTranslator** (`engines/helsinki_translator.py`):
+- Uses free, open-source Helsinki-NLP OPUS-MT models from Hugging Face
+- Supports GPU acceleration (automatic detection)
+- Implements segment-by-segment translation to preserve subtitle boundaries
+- Handles over 20 language pairs including Spanish, French, German, Italian, Portuguese, Russian, Chinese, Japanese
+
+**LanguageDetector** (`utils/language_detector.py`):
+- Automatic source language detection using langdetect library
+- Samples multiple segments for accurate detection
+- Falls back gracefully if detection fails
+
+### Translation Features
+
+#### Context-Aware Translation
+- Translates each subtitle segment individually to prevent text bleeding
+- Maintains proper subtitle structure and timing
+- Preserves line breaks and formatting
+
+#### GPU Acceleration
+```python
+# Automatic GPU detection
+if torch.cuda.is_available():
+    device_id = 0  # Use GPU
+else:
+    device_id = -1  # Use CPU
+```
+
+#### Supported Languages
+- **To English**: Spanish, French, German, Italian, Portuguese, Russian, Chinese, Japanese, Dutch, Polish, Turkish, Arabic, Korean
+- **From English**: All above languages
+- **Multi-language fallback**: Uses OPUS-MT multilingual models for broader coverage
+
+### UI Integration
+
+The translation feature is seamlessly integrated into the main UI:
+1. **Translation Checkbox**: Enable/disable subtitle translation
+2. **Language Selection**: 
+   - Source: Auto-detect or manual selection
+   - Target: Choose from 20+ languages
+3. **Progress Tracking**: Real-time translation progress updates
+
+### Translation Workflow
+
+1. **Subtitle Generation**: First creates subtitles in original language
+2. **Language Detection**: Auto-detects source language if set to "auto"
+3. **Model Loading**: Downloads and caches Helsinki-NLP model (200-500MB, one-time)
+4. **Translation**: Processes each subtitle segment
+5. **Output**: Creates translated subtitle file (e.g., `video_subtitle.en.srt`)
+
+### Performance Optimizations
+
+- **Model Caching**: Models are downloaded once and cached locally
+- **GPU Acceleration**: Automatically uses CUDA if available
+- **Batch Processing**: Efficient handling of multiple segments
+- **Thread Safety**: Proper handling in QThread worker context
+
 ## Conclusion
 
-The subtitle synchronization system now provides accurate, word-level timing for subtitles on Windows by leveraging faster-whisper's CTranslate2-based implementation. This ensures subtitles appear and disappear in sync with actual speech, never cutting off mid-word, providing a professional viewing experience.
+The Video Transcriber App now provides a complete subtitle solution:
+1. **Accurate Synchronization**: Word-level timestamps via faster-whisper
+2. **Multi-language Support**: Translation to/from 20+ languages
+3. **Professional Output**: Properly formatted, synchronized subtitles
+4. **Windows Compatibility**: Full functionality on Windows without Triton
+5. **GPU Acceleration**: Fast processing when CUDA is available
+
+This comprehensive system ensures subtitles are perfectly synchronized with speech and can be translated to reach global audiences, all while maintaining professional quality and timing.
