@@ -50,6 +50,16 @@ pyinstaller --onefile --windowed run.py
 pyinstaller VideoTranscriber-Full.spec
 ```
 
+## Subtitle Synchronization System
+
+**For detailed technical documentation on the subtitle synchronization architecture, see: [`docs/subtitle-synchronization-architecture.md`](docs/subtitle-synchronization-architecture.md)**
+
+The app now supports dual transcription engines:
+- **Standard Whisper**: Faster processing, segment-level timestamps
+- **Faster-whisper**: Word-level timestamps for accurate subtitle synchronization (works on Windows!)
+
+Users can choose the engine via a checkbox in the UI when exporting subtitles.
+
 ## Architecture Overview
 
 This is a PyQt6-based video transcription application using a 4-layer modular architecture:
