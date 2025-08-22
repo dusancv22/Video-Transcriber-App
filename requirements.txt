@@ -9,3 +9,9 @@ pysubs2>=1.7.1
 pydub>=0.25.1
 audioop-lts>=0.2.2
 soundfile>=0.12.1
+
+# Translation dependencies
+transformers>=4.36.0
+sentencepiece>=0.1.99  # Required for some translation models
+sacremoses>=0.1.1  # Required for some translation models
+langdetect>=1.0.9  # For automatic language detection

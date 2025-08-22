@@ -358,6 +358,112 @@ class MainWindow(QMainWindow):
         self.subtitle_formats_group.hide()
         subtitle_section.addWidget(self.subtitle_formats_group)
         
+        # Translation options section (initially hidden)
+        self.translation_group = QWidget()
+        translation_layout = QHBoxLayout(self.translation_group)
+        translation_layout.setContentsMargins(0, 0, 0, 0)
+        translation_layout.setSpacing(8)
+        
+        # Translation checkbox
+        self.translate_checkbox = QCheckBox("Translate")
+        self.translate_checkbox.setToolTip(
+            "Translate subtitles to another language while preserving timestamps.\n"
+            "Uses free Helsinki-NLP models (no API keys needed)."
+        )
+        self.translate_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {ModernTheme.COLORS['text_primary']};
+                font-size: 12px;
+                padding: 4px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 2px solid {ModernTheme.COLORS['outline']};
+                border-radius: 3px;
+                background: {ModernTheme.COLORS['surface']};
+            }}
+            QCheckBox::indicator:checked {{
+                background: {ModernTheme.COLORS['primary']};
+                border-color: {ModernTheme.COLORS['primary']};
+            }}
+        """)
+        self.translate_checkbox.stateChanged.connect(self.on_translate_changed)
+        translation_layout.addWidget(self.translate_checkbox)
+        
+        # Source language combo (initially hidden)
+        self.source_lang_label = QLabel("From:")
+        self.source_lang_label.setStyleSheet(f"color: {ModernTheme.COLORS['text_secondary']}; font-size: 12px;")
+        self.source_lang_label.hide()
+        translation_layout.addWidget(self.source_lang_label)
+        
+        self.source_lang_combo = QComboBox()
+        self.source_lang_combo.addItems([
+            "Auto-detect",
+            "Spanish (es)",
+            "French (fr)",
+            "German (de)",
+            "Italian (it)",
+            "Portuguese (pt)",
+            "Russian (ru)",
+            "Chinese (zh)",
+            "Japanese (ja)",
+            "English (en)"
+        ])
+        self.source_lang_combo.setStyleSheet(f"""
+            QComboBox {{
+                background: {ModernTheme.COLORS['surface']};
+                border: 1px solid {ModernTheme.COLORS['outline']};
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: {ModernTheme.COLORS['text_primary']};
+                font-size: 12px;
+                min-width: 100px;
+            }}
+            QComboBox:hover {{
+                border-color: {ModernTheme.COLORS['primary']};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                padding-right: 4px;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid {ModernTheme.COLORS['text_tertiary']};
+                margin-right: 4px;
+            }}
+        """)
+        self.source_lang_combo.hide()
+        translation_layout.addWidget(self.source_lang_combo)
+        
+        # Target language combo (initially hidden)
+        self.target_lang_label = QLabel("To:")
+        self.target_lang_label.setStyleSheet(f"color: {ModernTheme.COLORS['text_secondary']}; font-size: 12px;")
+        self.target_lang_label.hide()
+        translation_layout.addWidget(self.target_lang_label)
+        
+        self.target_lang_combo = QComboBox()
+        self.target_lang_combo.addItems([
+            "English (en)",
+            "Spanish (es)",
+            "French (fr)",
+            "German (de)",
+            "Italian (it)",
+            "Portuguese (pt)",
+            "Russian (ru)",
+            "Chinese (zh)",
+            "Japanese (ja)"
+        ])
+        self.target_lang_combo.setCurrentIndex(0)  # Default to English
+        self.target_lang_combo.setStyleSheet(self.source_lang_combo.styleSheet())
+        self.target_lang_combo.hide()
+        translation_layout.addWidget(self.target_lang_combo)
+        
+        self.translation_group.hide()
+        subtitle_section.addWidget(self.translation_group)
+        
         subtitle_section.addStretch()
         layout.addLayout(subtitle_section)
         
@@ -615,6 +721,9 @@ class MainWindow(QMainWindow):
             subtitle_formats = self.get_selected_subtitle_formats()
             max_chars_per_line = self.max_chars_spinbox.value() if subtitle_formats else 42
             
+            # Get translation settings
+            translation_settings = self.get_translation_settings()
+            
             # Create and setup worker with language and subtitle preferences
             self.worker = TranscriptionWorker(
                 self.pipeline,
@@ -622,7 +731,8 @@ class MainWindow(QMainWindow):
                 self.output_directory,
                 language_code=self.selected_language_code,
                 subtitle_formats=subtitle_formats,
-                max_chars_per_line=max_chars_per_line
+                max_chars_per_line=max_chars_per_line,
+                translation_settings=translation_settings
             )
             
             # Connect signals
@@ -986,11 +1096,14 @@ class MainWindow(QMainWindow):
         if state == 2:  # Checked
             self.subtitle_formats_group.show()
             self.use_faster_whisper_checkbox.show()
+            self.translation_group.show()  # Show translation options
             # Auto-check faster-whisper for better subtitle timing
             self.use_faster_whisper_checkbox.setChecked(True)
         else:
             self.subtitle_formats_group.hide()
             self.use_faster_whisper_checkbox.hide()
+            self.translation_group.hide()  # Hide translation options
+            self.translate_checkbox.setChecked(False)
     
     def on_faster_whisper_changed(self, state):
         """Handle faster-whisper checkbox toggle."""
@@ -1000,6 +1113,20 @@ class MainWindow(QMainWindow):
                 print("Faster-whisper enabled for word-level timestamps (better subtitle timing)")
             else:
                 print("Using standard Whisper (no word timestamps on Windows)")
+    
+    def on_translate_changed(self, state):
+        """Handle translation checkbox toggle."""
+        if state == 2:  # Checked
+            self.source_lang_label.show()
+            self.source_lang_combo.show()
+            self.target_lang_label.show()
+            self.target_lang_combo.show()
+            print("Translation enabled - subtitles will be translated after generation")
+        else:
+            self.source_lang_label.hide()
+            self.source_lang_combo.hide()
+            self.target_lang_label.hide()
+            self.target_lang_combo.hide()
     
     def get_selected_subtitle_formats(self):
         """Get list of selected subtitle formats."""
@@ -1012,6 +1139,29 @@ class MainWindow(QMainWindow):
             if self.ass_checkbox.isChecked():
                 formats.append('ass')
         return formats
+    
+    def get_translation_settings(self):
+        """Get translation settings if enabled."""
+        if self.translate_checkbox.isChecked():
+            source_text = self.source_lang_combo.currentText()
+            target_text = self.target_lang_combo.currentText()
+            
+            # Extract language codes
+            if source_text == "Auto-detect":
+                source_lang = "auto"
+            else:
+                # Extract code from format like "Spanish (es)"
+                source_lang = source_text.split('(')[-1].rstrip(')')
+            
+            # Extract target language code
+            target_lang = target_text.split('(')[-1].rstrip(')')
+            
+            return {
+                'enabled': True,
+                'source_lang': source_lang,
+                'target_lang': target_lang
+            }
+        return {'enabled': False}
     
     def on_language_changed(self, language_selection: str):
         """Handle language selection change."""

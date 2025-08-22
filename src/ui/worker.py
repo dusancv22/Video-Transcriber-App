@@ -14,7 +14,7 @@ class TranscriptionWorker(QThread):
     error_occurred = pyqtSignal(str, str)
 
     def __init__(self, pipeline, queue_manager, output_dir, language_code=None, 
-                 subtitle_formats=None, max_chars_per_line=42):
+                 subtitle_formats=None, max_chars_per_line=42, translation_settings=None):
         """Initialize the worker thread.
         
         Args:
@@ -24,6 +24,7 @@ class TranscriptionWorker(QThread):
             language_code: Optional language code for transcription (e.g., 'en', 'es')
             subtitle_formats: List of subtitle formats to generate (e.g., ['srt', 'vtt'])
             max_chars_per_line: Maximum characters per subtitle line
+            translation_settings: Dictionary with translation settings (enabled, source_lang, target_lang)
         """
         super().__init__()
         self.pipeline = pipeline
@@ -32,8 +33,25 @@ class TranscriptionWorker(QThread):
         self.language_code = language_code
         self.subtitle_formats = subtitle_formats or []
         self.max_chars_per_line = max_chars_per_line
+        self.translation_settings = translation_settings or {'enabled': False}
         self.is_paused = False
         self._stop = False
+        self.subtitle_translator = None
+        
+        # Initialize translator if translation is enabled
+        if self.translation_settings.get('enabled'):
+            try:
+                from src.translation.subtitle_translator import SubtitleTranslator
+                self.subtitle_translator = SubtitleTranslator(
+                    source_lang=self.translation_settings.get('source_lang', 'auto'),
+                    target_lang=self.translation_settings.get('target_lang', 'en')
+                )
+                logger.info(f"Translation enabled: {self.translation_settings.get('source_lang')} -> {self.translation_settings.get('target_lang')}")
+                print(f"Translation enabled: {self.translation_settings.get('source_lang')} -> {self.translation_settings.get('target_lang')}")
+            except Exception as e:
+                logger.error(f"Failed to initialize translator: {e}")
+                print(f"Warning: Failed to initialize translator: {e}")
+                self.subtitle_translator = None
         
         logger.info(f"TranscriptionWorker initialized with language: {language_code or 'auto-detect'}")
         if self.subtitle_formats:
@@ -107,6 +125,34 @@ class TranscriptionWorker(QThread):
                     if result.get('subtitle_files'):
                         completion_info['subtitle_files'] = result['subtitle_files']
                         completion_info['subtitle_segments'] = result.get('subtitle_segments', 0)
+                        
+                        # Translate subtitles if enabled
+                        if self.subtitle_translator and result.get('subtitle_files'):
+                            try:
+                                print(f"Translating subtitles to {self.translation_settings.get('target_lang')}...")
+                                translated_files = {}
+                                
+                                for format_type, subtitle_path in result['subtitle_files'].items():
+                                    if subtitle_path and Path(subtitle_path).exists():
+                                        try:
+                                            # Translate the subtitle file
+                                            translated_path = self.subtitle_translator.translate_subtitle_file(
+                                                subtitle_path=Path(subtitle_path),
+                                                preserve_original=True
+                                            )
+                                            translated_files[format_type] = str(translated_path)
+                                            print(f"  Translated {format_type}: {translated_path.name}")
+                                        except Exception as e:
+                                            logger.error(f"Failed to translate {format_type} subtitle: {e}")
+                                            print(f"  Failed to translate {format_type}: {e}")
+                                
+                                if translated_files:
+                                    completion_info['translated_subtitle_files'] = translated_files
+                                    print(f"Translation complete: {len(translated_files)} subtitle(s) translated")
+                                    
+                            except Exception as e:
+                                logger.error(f"Translation failed: {e}")
+                                print(f"Translation failed: {e}")
 
                     # Emit completion signal
                     self.file_completed.emit(completion_info)
