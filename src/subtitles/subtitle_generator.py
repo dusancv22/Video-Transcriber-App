@@ -4,6 +4,10 @@ from typing import List, Dict, Optional, Tuple
 import logging
 import re
 import math
+from src.subtitles.word_level_analyzer import WordLevelAnalyzer
+from src.subtitles.subtitle_timing_fixer import SubtitleTimingFixer
+from src.subtitles.smart_timing_estimator import SmartTimingEstimator
+from src.subtitles.word_based_subtitle_generator import WordBasedSubtitleGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -19,17 +23,54 @@ class SubtitleGenerator:
         'sami': 'Synchronized Accessible Media Interchange'
     }
     
-    def __init__(self, max_chars_per_line: int = 42, max_lines_per_subtitle: int = 2):
+    def __init__(
+        self, 
+        max_chars_per_line: int = 42, 
+        max_lines_per_subtitle: int = 2,
+        use_word_level_optimization: bool = True,
+        transition_delay: float = 0.15
+    ):
         """Initialize subtitle generator with formatting preferences.
         
         Args:
             max_chars_per_line: Maximum characters per subtitle line
             max_lines_per_subtitle: Maximum lines per subtitle entry (standard is 2)
+            use_word_level_optimization: Whether to use word-level timestamp optimization
+            transition_delay: Default transition delay for better sync
         """
         self.max_chars_per_line = max_chars_per_line
         self.max_lines_per_subtitle = 2  # Force 2 lines max as per subtitle standards
         self.max_chars_per_subtitle = max_chars_per_line * 2  # Total chars for 2 lines
-        logger.info(f"SubtitleGenerator initialized with {max_chars_per_line} chars/line, max 2 lines")
+        self.use_word_level_optimization = use_word_level_optimization
+        self.transition_delay = transition_delay
+        
+        # Initialize word-level analyzer if enabled
+        if use_word_level_optimization:
+            self.word_analyzer = WordLevelAnalyzer(
+                transition_delay=transition_delay,
+                aggressive_merge=True,  # Enable aggressive merging of orphan segments
+                merge_orphan_words=True
+            )
+        else:
+            self.word_analyzer = None
+        
+        # Initialize timing fixer for proper subtitle display duration
+        self.timing_fixer = SubtitleTimingFixer(
+            min_display_time=1.5,
+            reading_speed_wpm=160,
+            speech_overlap_buffer=0.4
+        )
+        
+        # Initialize smart timing estimator for when word timestamps are unavailable
+        self.smart_estimator = SmartTimingEstimator(
+            avg_speech_rate_wpm=140,  # Spanish average
+            reading_rate_wpm=160,
+            two_line_extension=0.6
+        )
+            
+        logger.info(f"SubtitleGenerator initialized with {max_chars_per_line} chars/line, "
+                   f"word optimization: {use_word_level_optimization}, "
+                   f"transition delay: {transition_delay}s")
     
     def generate_subtitles(
         self, 
@@ -38,7 +79,8 @@ class SubtitleGenerator:
         format: str = 'srt',
         time_offset: float = 0.0,
         min_duration: float = 0.5,
-        max_duration: float = 7.0
+        max_duration: float = 7.0,
+        global_sync_offset: float = 0.0
     ) -> Path:
         """Generate subtitle file from segments with timestamps.
         
@@ -52,6 +94,7 @@ class SubtitleGenerator:
             time_offset: Global time offset in seconds (for synchronization)
             min_duration: Minimum subtitle duration in seconds
             max_duration: Maximum subtitle duration in seconds
+            global_sync_offset: Manual sync adjustment in seconds (+ delays, - advances)
             
         Returns:
             Path to generated subtitle file
@@ -61,19 +104,65 @@ class SubtitleGenerator:
         
         logger.info(f"Generating {format} subtitles with {len(segments)} segments")
         
+        # First, merge orphan segments (like single word "pueblo.")
+        logger.info("Checking for orphan segments to merge...")
+        segments = self.smart_estimator.smart_segment_merge(segments)
+        
+        # Check if we have word timestamps
+        has_word_timestamps = any('words' in seg and seg.get('words') for seg in segments[:5])
+        
+        # DEBUG: Log what we actually have
+        logger.info(f"DEBUG: Checking segments for word timestamps...")
+        for i, seg in enumerate(segments[:3]):
+            if 'words' in seg:
+                logger.info(f"  Segment {i}: HAS words field with {len(seg['words'])} words")
+            else:
+                logger.info(f"  Segment {i}: NO words field")
+        logger.info(f"DEBUG: has_word_timestamps = {has_word_timestamps}")
+        
+        if has_word_timestamps:
+            # Use the simple word-based generator that actually uses word timestamps!
+            logger.info("Using word-based subtitle generator with actual word timestamps")
+            word_generator = WordBasedSubtitleGenerator(
+                max_chars_per_line=self.max_chars_per_line,
+                max_words_per_subtitle=10,
+                min_subtitle_duration=min_duration,
+                max_subtitle_duration=max_duration
+            )
+            return word_generator.generate_from_segments(segments, output_path, format)
+        else:
+            # No word timestamps available - use smart estimation
+            logger.warning("No word timestamps available - using smart timing estimation")
+            segments = self.smart_estimator.fix_subtitle_timing_without_words(segments)
+        
+        # Log sync adjustment if applied
+        if global_sync_offset != 0:
+            logger.info(f"Applying global sync offset: {global_sync_offset:+.2f}s")
+        
         # Create pysubs2 subtitle file
         subs = pysubs2.SSAFile()
         
         for segment in segments:
-            # Apply time offset if needed
-            start_time = segment['start'] + time_offset
-            end_time = segment['end'] + time_offset
+            # Apply both time offset and global sync adjustment
+            start_time = segment['start'] + time_offset + global_sync_offset
+            end_time = segment['end'] + time_offset + global_sync_offset
             segment_duration = end_time - start_time
             
             # Clean and prepare text
             text = segment['text'].strip()
             if not text:
                 continue
+            
+            # Calculate minimum reading time based on text length
+            # Average reading speed: 150-200 words per minute for subtitles
+            word_count = len(text.split())
+            min_reading_time = max(1.5, word_count * 0.4)  # ~150 WPM reading speed
+            
+            # Extend duration if needed for reading time
+            if segment_duration < min_reading_time:
+                logger.debug(f"Extending segment duration from {segment_duration:.2f}s to {min_reading_time:.2f}s for readability")
+                end_time = start_time + min_reading_time
+                segment_duration = min_reading_time
             
             # Split long text into multiple subtitles if needed
             subtitle_texts = self._split_text_for_subtitles(text)
@@ -332,6 +421,43 @@ class SubtitleGenerator:
         
         return merged
     
+    def detect_sync_offset(
+        self,
+        audio_path: Path,
+        segments: List[Dict]
+    ) -> float:
+        """Detect sync offset by finding first speech in audio.
+        
+        This is a quick method to detect if subtitles need adjustment
+        by comparing where speech actually starts vs where subtitles start.
+        
+        Args:
+            audio_path: Path to the audio file
+            segments: Subtitle segments
+            
+        Returns:
+            Suggested sync offset in seconds
+        """
+        try:
+            # Import VAD manager for detection
+            from src.audio_processing.vad_manager import VADManager
+            
+            vad = VADManager()
+            first_speech_time = vad.get_first_speech_time(audio_path)
+            
+            if segments and first_speech_time > 0:
+                # Calculate offset between first speech and first subtitle
+                first_subtitle_time = segments[0]['start']
+                offset = first_speech_time - first_subtitle_time
+                
+                logger.info(f"Detected sync offset: {offset:+.2f}s (speech at {first_speech_time:.2f}s, subtitle at {first_subtitle_time:.2f}s)")
+                return offset
+            
+        except Exception as e:
+            logger.warning(f"Could not detect sync offset: {e}")
+        
+        return 0.0
+    
     @staticmethod
     def get_format_info(format: str) -> Dict[str, str]:
         """Get information about a subtitle format.
@@ -364,3 +490,57 @@ class SubtitleGenerator:
         info['description'] = descriptions.get(format, 'Subtitle format')
         
         return info
+    
+    def configure_word_optimization(
+        self,
+        enabled: bool = True,
+        transition_delay: float = 0.15,
+        pause_threshold: float = 0.3,
+        min_pause_for_boundary: float = 0.2
+    ):
+        """Configure word-level optimization settings.
+        
+        Args:
+            enabled: Whether to enable word-level optimization
+            transition_delay: Delay to add to transitions (seconds)
+            pause_threshold: Minimum pause to consider as boundary
+            min_pause_for_boundary: Minimum pause to create boundary
+        """
+        self.use_word_level_optimization = enabled
+        self.transition_delay = transition_delay
+        
+        if enabled:
+            # Reinitialize word analyzer with new settings
+            self.word_analyzer = WordLevelAnalyzer(
+                transition_delay=transition_delay,
+                pause_threshold=pause_threshold,
+                min_pause_for_boundary=min_pause_for_boundary,
+                aggressive_merge=True,
+                merge_orphan_words=True
+            )
+            logger.info(f"Word optimization configured: delay={transition_delay}s, "
+                       f"pause_threshold={pause_threshold}s")
+        else:
+            self.word_analyzer = None
+            logger.info("Word-level optimization disabled")
+    
+    def get_optimization_status(self) -> Dict:
+        """Get current optimization settings status.
+        
+        Returns:
+            Dictionary with optimization settings
+        """
+        status = {
+            'word_level_optimization': self.use_word_level_optimization,
+            'transition_delay': self.transition_delay
+        }
+        
+        if self.word_analyzer:
+            status.update({
+                'pause_threshold': self.word_analyzer.pause_threshold,
+                'min_pause_for_boundary': self.word_analyzer.min_pause_for_boundary,
+                'max_segment_duration': self.word_analyzer.max_segment_duration,
+                'min_segment_duration': self.word_analyzer.min_segment_duration
+            })
+        
+        return status

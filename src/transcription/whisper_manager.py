@@ -164,11 +164,24 @@ class WhisperManager:
                     # These should be more accurate with word_timestamps enabled
                     segment_text = segment['text'].strip()
                     if segment_text:  # Only add non-empty segments
-                        segments.append({
+                        segment_dict = {
                             'start': segment['start'],
                             'end': segment['end'],
                             'text': segment_text
-                        })
+                        }
+                        
+                        # CRITICAL: Preserve word-level timestamps if available
+                        if 'words' in segment and segment['words']:
+                            segment_dict['words'] = []
+                            for word in segment['words']:
+                                if word.get('word') or word.get('text'):
+                                    segment_dict['words'].append({
+                                        'word': word.get('word', word.get('text', '')),
+                                        'start': word.get('start', 0),
+                                        'end': word.get('end', 0)
+                                    })
+                        
+                        segments.append(segment_dict)
                 
                 # Post-process segments to merge very short ones and fix timing issues
                 segments = self._optimize_segment_timing(segments)
@@ -241,6 +254,13 @@ class WhisperManager:
                     # Merge segments
                     current['end'] = next_segment['end']
                     current['text'] = current['text'] + ' ' + next_segment['text']
+                    
+                    # Merge word timestamps if available
+                    if 'words' in current and 'words' in next_segment:
+                        current['words'] = current.get('words', []) + next_segment.get('words', [])
+                    elif 'words' in next_segment:
+                        current['words'] = next_segment['words']
+                    
                     i += 2  # Skip next segment since we merged it
                 else:
                     # Keep segment as is

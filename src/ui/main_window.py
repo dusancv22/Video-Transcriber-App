@@ -270,6 +270,35 @@ class MainWindow(QMainWindow):
         self.subtitle_export_checkbox.stateChanged.connect(self.on_subtitle_export_changed)
         subtitle_section.addWidget(self.subtitle_export_checkbox)
         
+        # Faster-whisper checkbox for word-level timestamps
+        self.use_faster_whisper_checkbox = QCheckBox("Use Faster-Whisper (Word Timestamps)")
+        self.use_faster_whisper_checkbox.setToolTip(
+            "Enable this for subtitle generation with accurate word-level timestamps.\n"
+            "Works on Windows! Recommended when exporting subtitles."
+        )
+        self.use_faster_whisper_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {ModernTheme.COLORS['text_primary']};
+                font-size: 12px;
+                padding: 4px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 2px solid {ModernTheme.COLORS['outline']};
+                border-radius: 3px;
+                background-color: {ModernTheme.COLORS['surface']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {ModernTheme.COLORS['primary']};
+                border-color: {ModernTheme.COLORS['primary']};
+            }}
+        """)
+        # Auto-enable faster-whisper when subtitles are enabled
+        self.use_faster_whisper_checkbox.setVisible(False)  # Initially hidden
+        self.use_faster_whisper_checkbox.stateChanged.connect(self.on_faster_whisper_changed)
+        subtitle_section.addWidget(self.use_faster_whisper_checkbox)
+        
         # Subtitle format checkboxes (initially hidden)
         self.subtitle_formats_group = QWidget()
         subtitle_formats_layout = QHBoxLayout(self.subtitle_formats_group)
@@ -482,10 +511,15 @@ class MainWindow(QMainWindow):
             model_size = self.settings.get('whisper_model_size', 'large')
             model_path = self.settings.get_whisper_model_path()
             
+            # Check if faster-whisper should be used
+            use_faster_whisper = self.use_faster_whisper_checkbox.isChecked()
+            
             self.pipeline = TranscriptionPipeline(
                 use_advanced_processing=self.settings.get('use_advanced_processing', True),
                 model_size=model_size,
-                model_path=str(model_path) if model_path else None
+                model_path=str(model_path) if model_path else None,
+                use_faster_whisper=use_faster_whisper,
+                use_vad_enhancement=False  # Disable VAD to avoid onnxruntime issues
             )
             print("Pipeline initialized successfully")
 
@@ -951,8 +985,21 @@ class MainWindow(QMainWindow):
         """Handle subtitle export checkbox toggle."""
         if state == 2:  # Checked
             self.subtitle_formats_group.show()
+            self.use_faster_whisper_checkbox.show()
+            # Auto-check faster-whisper for better subtitle timing
+            self.use_faster_whisper_checkbox.setChecked(True)
         else:
             self.subtitle_formats_group.hide()
+            self.use_faster_whisper_checkbox.hide()
+    
+    def on_faster_whisper_changed(self, state):
+        """Handle faster-whisper checkbox toggle."""
+        if self.pipeline:
+            self.pipeline = None  # Force re-initialization with new setting
+            if state == 2:  # Checked
+                print("Faster-whisper enabled for word-level timestamps (better subtitle timing)")
+            else:
+                print("Using standard Whisper (no word timestamps on Windows)")
     
     def get_selected_subtitle_formats(self):
         """Get list of selected subtitle formats."""

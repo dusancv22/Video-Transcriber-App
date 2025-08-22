@@ -4,7 +4,17 @@ import logging
 import time
 from datetime import datetime
 from src.audio_processing.converter import AudioConverter
-from src.transcription.whisper_manager import WhisperManager
+
+# Try to import WhisperManager (standard whisper)
+try:
+    from src.transcription.whisper_manager import WhisperManager
+    STANDARD_WHISPER_AVAILABLE = True
+except ImportError:
+    WhisperManager = None
+    STANDARD_WHISPER_AVAILABLE = False
+
+# Import EnhancedWhisperManager (faster-whisper)
+from src.transcription.enhanced_whisper_manager import EnhancedWhisperManager
 from src.post_processing.text_processor import TextProcessor
 from src.post_processing.advanced_text_processor import AdvancedTextProcessor
 from src.post_processing.combiner import TextCombiner
@@ -13,22 +23,108 @@ from src.subtitles.subtitle_generator import SubtitleGenerator
 logger = logging.getLogger(__name__)
 
 class TranscriptionPipeline:
-    def __init__(self, use_advanced_processing: bool = True, model_size: str = "large", model_path: Optional[str] = None):
+    def __init__(
+        self, 
+        use_advanced_processing: bool = True, 
+        model_size: str = "large", 
+        model_path: Optional[str] = None,
+        use_vad_enhancement: bool = True,  # Enable VAD for accurate subtitle timing
+        use_faster_whisper: bool = False  # Use faster-whisper for word-level timestamps
+    ):
         """Initialize the transcription pipeline components.
         
         Args:
             use_advanced_processing: Whether to use advanced text processing (filler removal, etc.)
             model_size: Size of the Whisper model to use
             model_path: Optional path to a pre-downloaded model file
+            use_vad_enhancement: Whether to use VAD for accurate subtitle timing
+            use_faster_whisper: Whether to use faster-whisper (works on Windows with word timestamps)
         """
-        logger.info(f"Initializing TranscriptionPipeline with model_size={model_size}")
+        logger.info(f"Initializing TranscriptionPipeline with model_size={model_size}, VAD={use_vad_enhancement}, faster_whisper={use_faster_whisper}")
         print("\nInitializing transcription pipeline...")
         self.converter = AudioConverter()
-        self.whisper_manager = WhisperManager(model_size=model_size, model_path=model_path)
+        
+        # Choose which whisper implementation to use
+        if use_faster_whisper:
+            # Use faster-whisper for word-level timestamps (works on Windows!)
+            try:
+                logger.info("Initializing Enhanced Whisper Manager with faster-whisper")
+                # For faster-whisper, map model sizes appropriately
+                # If there's a .pt model path, ignore it for faster-whisper
+                if model_path and model_path.endswith('.pt'):
+                    logger.info("Ignoring .pt model file for faster-whisper, will download appropriate model")
+                    model_path = None  # Don't pass .pt files to faster-whisper
+                
+                # Map model sizes for faster-whisper
+                if model_size == "large":
+                    faster_model_size = "large-v3"  # Use latest large model
+                else:
+                    faster_model_size = model_size
+                    
+                self.whisper_manager = EnhancedWhisperManager(model_size=faster_model_size, model_path=model_path)
+                self.use_vad = use_vad_enhancement
+                self.use_faster_whisper = True
+                print("faster-whisper enabled for word-level timestamps (works on Windows!)")
+                logger.info("faster-whisper initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize faster-whisper: {e}", exc_info=True)
+                print(f"Warning: faster-whisper initialization failed ({e})")
+                
+                # Fall back to standard Whisper if available
+                if STANDARD_WHISPER_AVAILABLE:
+                    print("Falling back to standard Whisper")
+                    self.whisper_manager = WhisperManager(model_size=model_size, model_path=model_path)
+                    self.use_vad = False
+                    self.use_faster_whisper = False
+                else:
+                    raise RuntimeError(f"faster-whisper failed and standard Whisper not available: {e}")
+        elif use_vad_enhancement:
+            # Try to use enhanced manager with VAD (requires faster-whisper now)
+            try:
+                logger.info("Initializing Enhanced Whisper Manager with VAD")
+                # For VAD, we need to use faster-whisper
+                faster_model_size = "large-v2" if model_size == "large" else model_size
+                self.whisper_manager = EnhancedWhisperManager(model_size=faster_model_size, model_path=model_path)
+                self.use_vad = True
+                self.use_faster_whisper = True  # VAD requires faster-whisper
+                print("VAD-enhanced transcription enabled (using faster-whisper)")
+                logger.info("VAD enhancement initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize VAD enhancement: {e}", exc_info=True)
+                print(f"Warning: VAD initialization failed ({e})")
+                
+                # Fall back to standard Whisper if available
+                if STANDARD_WHISPER_AVAILABLE:
+                    print("Falling back to standard Whisper")
+                    self.whisper_manager = WhisperManager(model_size=model_size, model_path=model_path)
+                    self.use_vad = False
+                    self.use_faster_whisper = False
+                else:
+                    raise RuntimeError("Neither faster-whisper nor standard Whisper available")
+        else:
+            # Try standard Whisper first
+            if STANDARD_WHISPER_AVAILABLE:
+                logger.info("Using standard Whisper Manager")
+                self.whisper_manager = WhisperManager(model_size=model_size, model_path=model_path)
+                self.use_vad = False
+                self.use_faster_whisper = False
+            else:
+                # Fall back to faster-whisper without VAD
+                logger.info("Standard Whisper not available, using faster-whisper")
+                faster_model_size = "large-v2" if model_size == "large" else model_size
+                self.whisper_manager = EnhancedWhisperManager(model_size=faster_model_size, model_path=model_path)
+                self.use_vad = False
+                self.use_faster_whisper = True
+                print("Using faster-whisper (standard Whisper not installed)")
+        
         self.text_processor = TextProcessor()
         self.advanced_processor = AdvancedTextProcessor(remove_fillers=True, aggressive_cleaning=True)
         self.text_combiner = TextCombiner()
-        self.subtitle_generator = SubtitleGenerator()
+        # Initialize subtitle generator with word-level optimization enabled by default
+        self.subtitle_generator = SubtitleGenerator(
+            use_word_level_optimization=True,
+            transition_delay=0.25  # Increased to 250ms for better sync with speech transitions
+        )
         self.use_advanced_processing = use_advanced_processing
         print(f"Pipeline initialized successfully (Advanced processing: {'Enabled' if use_advanced_processing else 'Disabled'})")
         
@@ -106,7 +202,8 @@ class TranscriptionPipeline:
                 
                 try:
                     print(f"DEBUG: Attempting to transcribe: {audio_file}")
-                    result = self.whisper_manager.transcribe_audio(audio_file, language=language)
+                    # Use transcribe_audio_with_timestamps to get VAD-enhanced transcription
+                    result = self.whisper_manager.transcribe_audio_with_timestamps(audio_file, language=language)
                     print(f"DEBUG: Transcription successful for segment {idx}")
                     full_text.append(result['text'])
                     if not detected_language:
@@ -309,6 +406,20 @@ class TranscriptionPipeline:
                                 'end': segment['end'] + current_time_offset,
                                 'text': segment['text']
                             }
+                            
+                            # CRITICAL: Preserve word-level timestamps if they exist!
+                            if 'words' in segment and segment['words']:
+                                # Adjust word timestamps too
+                                adjusted_words = []
+                                for word in segment['words']:
+                                    adjusted_words.append({
+                                        'word': word['word'],
+                                        'start': word['start'] + current_time_offset,
+                                        'end': word['end'] + current_time_offset,
+                                        'probability': word.get('probability', 1.0)
+                                    })
+                                adjusted_segment['words'] = adjusted_words
+                            
                             all_segments.append(adjusted_segment)
                     
                     # Update time offset for next segment
@@ -368,6 +479,29 @@ class TranscriptionPipeline:
                 progress_callback(0.85, "Generating subtitle files")
             
             print("\nStep 4/5: Generating subtitle files...")
+            
+            # DEBUG: Check if we have word timestamps before subtitle generation
+            logger.info(f"Checking word timestamps before subtitle generation...")
+            word_count = 0
+            segments_with_words = 0
+            for idx, seg in enumerate(all_segments[:5]):  # Check first 5 segments
+                if 'words' in seg and seg['words']:
+                    segments_with_words += 1
+                    word_count += len(seg['words'])
+                    logger.info(f"  Segment {idx+1} has {len(seg['words'])} words: '{seg['text'][:50]}...'")
+                    # Log first and last word timing
+                    if seg['words']:
+                        first_word = seg['words'][0]
+                        last_word = seg['words'][-1]
+                        logger.info(f"    First word: '{first_word.get('word', '')}' at {first_word.get('start', 0):.2f}s")
+                        logger.info(f"    Last word: '{last_word.get('word', '')}' at {last_word.get('end', 0):.2f}s")
+                        logger.info(f"    Segment timing: {seg['start']:.2f}s - {seg['end']:.2f}s")
+                else:
+                    logger.warning(f"  Segment {idx+1} has NO WORDS: '{seg.get('text', '')[:50]}...'")
+            
+            logger.info(f"Word timestamp summary: {segments_with_words}/{min(5, len(all_segments))} segments have word timestamps")
+            logger.info(f"Total words found: {word_count}")
+            
             subtitle_start = time.time()
             
             # Configure subtitle generator
@@ -452,8 +586,33 @@ class TranscriptionPipeline:
             'converter_available': True,
             'temp_dir': str(self.converter.output_dir),
             'subtitle_formats_available': list(SubtitleGenerator.SUPPORTED_FORMATS.keys()),
+            'subtitle_optimization': self.subtitle_generator.get_optimization_status(),
+            'vad_enabled': self.use_vad,
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
         logger.info(f"Pipeline status: {status}")
         return status
+    
+    def configure_subtitle_sync(
+        self,
+        use_word_level: bool = True,
+        transition_delay: float = 0.15,
+        pause_threshold: float = 0.3,
+        min_pause_for_boundary: float = 0.2
+    ):
+        """Configure subtitle synchronization settings.
+        
+        Args:
+            use_word_level: Enable word-level timestamp optimization
+            transition_delay: Delay to add to transitions (seconds)
+            pause_threshold: Minimum pause to consider as boundary
+            min_pause_for_boundary: Minimum pause to create boundary
+        """
+        self.subtitle_generator.configure_word_optimization(
+            enabled=use_word_level,
+            transition_delay=transition_delay,
+            pause_threshold=pause_threshold,
+            min_pause_for_boundary=min_pause_for_boundary
+        )
+        logger.info(f"Subtitle sync configured: word_level={use_word_level}, delay={transition_delay}s")
