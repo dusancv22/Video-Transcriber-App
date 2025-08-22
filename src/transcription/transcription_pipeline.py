@@ -547,13 +547,16 @@ class TranscriptionPipeline:
             print(f"Transcript saved to: {output_file}")
             logger.info(f"Processing with subtitles completed in {total_time:.2f} seconds")
             
+            # Convert Path objects to strings in subtitle_files
+            subtitle_files_str = {k: str(v) if v else None for k, v in subtitle_files.items()}
+            
             return {
                 'success': True,
                 'text': processed_text,
                 'language': detected_language,
                 'video_name': video_path.name,
                 'transcript_path': output_file,
-                'subtitle_files': subtitle_files,
+                'subtitle_files': subtitle_files_str,
                 'subtitle_segments': len(all_segments),
                 'processing_times': {
                     'conversion': conversion_time,

@@ -14,7 +14,13 @@
       "Bash(git merge:*)",
       "Bash(git branch:*)",
       "Bash(git stash:*)",
-      "mcp__sequential-thinking__sequentialthinking"
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(venvScriptspip install transformers sentencepiece sacremoses langdetect)",
+      "Bash(.venvScriptspip install transformers sentencepiece sacremoses langdetect)",
+      "Bash(venv/Scripts/pip install transformers sentencepiece sacremoses langdetect)",
+      "Bash(venv/Scripts/python:*)",
+      "Bash(venv/Scripts/pip uninstall:*)",
+      "Bash(venv/Scripts/pip install:*)"
     ],
     "deny": []
   }

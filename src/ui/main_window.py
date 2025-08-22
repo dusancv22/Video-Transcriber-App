@@ -689,8 +689,8 @@ class MainWindow(QMainWindow):
                     item.setForeground(Qt.GlobalColor.blue)
                     break
         
-        # Print progress to console
-        print(f"\rProgress: {progress:.1f}% - {status}", end="", flush=True)
+        # Print progress to console (use newline to avoid overwriting debug output)
+        print(f"Progress: {progress:.1f}% - {status}")
 
     def start_processing(self):
         """Start processing with enhanced error handling and status reporting."""

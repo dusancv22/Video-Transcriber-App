@@ -130,11 +130,37 @@ class TranscriptionWorker(QThread):
                         if self.subtitle_translator and result.get('subtitle_files'):
                             try:
                                 print(f"Translating subtitles to {self.translation_settings.get('target_lang')}...")
+                                print(f"DEBUG: subtitle_files = {result['subtitle_files']}")
+                                print(f"DEBUG: subtitle_translator exists = {self.subtitle_translator is not None}")
                                 translated_files = {}
                                 
                                 for format_type, subtitle_path in result['subtitle_files'].items():
-                                    if subtitle_path and Path(subtitle_path).exists():
+                                    print(f"DEBUG: Processing format_type={format_type}, subtitle_path={subtitle_path}")
+                                    # Convert Path object to string if needed
+                                    path_exists = False
+                                    if subtitle_path:
+                                        subtitle_path = str(subtitle_path) if not isinstance(subtitle_path, str) else subtitle_path
+                                        print(f"DEBUG: Checking subtitle file: {subtitle_path}")
                                         try:
+                                            path_obj = Path(subtitle_path)
+                                            print(f"DEBUG: Created Path object: {path_obj}", flush=True)
+                                            import sys
+                                            sys.stdout.flush()
+                                            path_exists = path_obj.exists()
+                                            print(f"DEBUG: File exists = {path_exists}", flush=True)
+                                        except Exception as e:
+                                            print(f"DEBUG: Error checking if file exists: {e}")
+                                            import traceback
+                                            print(f"DEBUG: Path check traceback:\n{traceback.format_exc()}")
+                                            path_exists = False
+                                    else:
+                                        print(f"DEBUG: subtitle_path is None or empty")
+                                        continue
+                                    
+                                    print(f"DEBUG: About to check path_exists={path_exists} for translation", flush=True)
+                                    if path_exists:
+                                        try:
+                                            print(f"DEBUG: Starting translation of {format_type} subtitle...", flush=True)
                                             # Translate the subtitle file
                                             translated_path = self.subtitle_translator.translate_subtitle_file(
                                                 subtitle_path=Path(subtitle_path),
@@ -143,16 +169,26 @@ class TranscriptionWorker(QThread):
                                             translated_files[format_type] = str(translated_path)
                                             print(f"  Translated {format_type}: {translated_path.name}")
                                         except Exception as e:
+                                            import traceback
                                             logger.error(f"Failed to translate {format_type} subtitle: {e}")
                                             print(f"  Failed to translate {format_type}: {e}")
+                                            print(f"DEBUG: Full traceback:\n{traceback.format_exc()}")
+                                    else:
+                                        print(f"DEBUG: Skipping translation - file doesn't exist or path is None")
                                 
                                 if translated_files:
                                     completion_info['translated_subtitle_files'] = translated_files
                                     print(f"Translation complete: {len(translated_files)} subtitle(s) translated")
+                                else:
+                                    print(f"DEBUG: No files were translated")
                                     
                             except Exception as e:
+                                import traceback
                                 logger.error(f"Translation failed: {e}")
                                 print(f"Translation failed: {e}")
+                                print(f"DEBUG: Outer exception traceback:\n{traceback.format_exc()}")
+                        else:
+                            print(f"DEBUG: Translation skipped - translator={self.subtitle_translator is not None}, has_files={result.get('subtitle_files') is not None}")
 
                     # Emit completion signal
                     self.file_completed.emit(completion_info)
