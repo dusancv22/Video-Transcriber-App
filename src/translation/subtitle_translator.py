@@ -49,14 +49,20 @@ class SubtitleTranslator:
     
     def _initialize_translator(self, source_lang: str, target_lang: str):
         """Initialize the translation engine."""
+        print(f"DEBUG: _initialize_translator called with {source_lang} -> {target_lang}", flush=True)
         try:
             logger.info(f"Initializing translator: {source_lang} -> {target_lang}")
+            print(f"DEBUG: Creating HelsinkiTranslator...", flush=True)
             self.translator = HelsinkiTranslator(source_lang, target_lang)
+            print(f"DEBUG: HelsinkiTranslator created successfully", flush=True)
+            print(f"DEBUG: self.translator is now: {self.translator}", flush=True)
             self.source_lang = source_lang
             self.target_lang = target_lang
+            print(f"DEBUG: Translator initialization complete", flush=True)
         except Exception as e:
             error_msg = f"Failed to initialize translator for {source_lang} -> {target_lang}: {e}"
             logger.error(error_msg)
+            print(f"DEBUG: ERROR initializing translator: {e}", flush=True)
             raise RuntimeError(error_msg)
     
     def translate_subtitle_file(
@@ -76,30 +82,46 @@ class SubtitleTranslator:
         Returns:
             Path to the translated subtitle file
         """
+        print(f"DEBUG: translate_subtitle_file() ENTERED", flush=True)
+        print(f"DEBUG: subtitle_path type = {type(subtitle_path)}", flush=True)
+        print(f"DEBUG: subtitle_path = {subtitle_path}", flush=True)
+        print(f"DEBUG: Translator state: source={self.source_lang}, target={self.target_lang}", flush=True)
+        print(f"DEBUG: self.translator = {self.translator}", flush=True)
+        
         subtitle_path = Path(subtitle_path)
+        print(f"DEBUG: After Path conversion: {subtitle_path}", flush=True)
         
         if not subtitle_path.exists():
+            print(f"DEBUG: File does not exist: {subtitle_path}", flush=True)
             raise FileNotFoundError(f"Subtitle file not found: {subtitle_path}")
         
         logger.info(f"Translating subtitle file: {subtitle_path}")
+        print(f"DEBUG: About to parse subtitle file", flush=True)
         
         # Parse the subtitle file
         segments = self.parse_subtitle_file(subtitle_path)
+        print(f"DEBUG: Parsed {len(segments) if segments else 0} segments", flush=True)
         
         if not segments:
             raise ValueError(f"No subtitles found in file: {subtitle_path}")
         
         # Auto-detect language if needed
         if self.source_lang == "auto":
+            print(f"DEBUG: Auto-detecting language...", flush=True)
             detected_lang = self._detect_language(segments)
+            print(f"DEBUG: Detected language: {detected_lang}", flush=True)
             if detected_lang:
                 logger.info(f"Detected source language: {detected_lang}")
+                print(f"DEBUG: Initializing translator for {detected_lang} -> {self.target_lang}", flush=True)
                 self._initialize_translator(detected_lang, self.target_lang)
+                print(f"DEBUG: Translator initialized", flush=True)
             else:
                 raise RuntimeError("Could not detect source language")
         
         # Translate segments
+        print(f"DEBUG: Starting segment translation...", flush=True)
         translated_segments = self.translate_segments(segments)
+        print(f"DEBUG: Translated {len(translated_segments)} segments", flush=True)
         
         # Generate output path if not provided
         if output_path is None:
@@ -157,14 +179,21 @@ class SubtitleTranslator:
         Returns:
             List of segments with translated text
         """
+        print(f"DEBUG: translate_segments called with {len(segments)} segments", flush=True)
+        print(f"DEBUG: self.translator = {self.translator}", flush=True)
+        
         if not self.translator:
+            print(f"DEBUG: ERROR - Translator not initialized!", flush=True)
             raise RuntimeError("Translator not initialized")
         
         logger.info(f"Translating {len(segments)} segments...")
+        print(f"DEBUG: About to call translator methods...", flush=True)
         
-        # Use context-aware translation if enabled
+        # Use context-aware translation for better quality
+        # But with fixed extraction to prevent text bleeding
+        print(f"DEBUG: Using context-aware translation with proper extraction", flush=True)
         if self.use_context:
-            return self.translator.translate_with_context(segments, self.context_window)
+            return self.translator.translate_with_context_fixed(segments, self.context_window)
         else:
             return self.translator.translate_segments(segments)
     

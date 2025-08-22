@@ -20,7 +20,10 @@
       "Bash(venv/Scripts/pip install transformers sentencepiece sacremoses langdetect)",
       "Bash(venv/Scripts/python:*)",
       "Bash(venv/Scripts/pip uninstall:*)",
-      "Bash(venv/Scripts/pip install:*)"
+      "Bash(venv/Scripts/pip install:*)",
+      "Bash(python test:*)",
+      "Bash(venvScriptspip install pysubs2)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

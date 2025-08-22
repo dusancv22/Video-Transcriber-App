@@ -161,11 +161,28 @@ class TranscriptionWorker(QThread):
                                     if path_exists:
                                         try:
                                             print(f"DEBUG: Starting translation of {format_type} subtitle...", flush=True)
+                                            
+                                            # Import and create a fresh translator instance in the thread
+                                            # This avoids issues with model loading in threads
+                                            from src.translation.subtitle_translator import SubtitleTranslator
+                                            
+                                            # Update progress to show translation is starting
+                                            self.progress_updated.emit(0.96, f"Translating {format_type.upper()} subtitles...")
+                                            
+                                            print(f"Creating translator instance...", flush=True)
+                                            fresh_translator = SubtitleTranslator(
+                                                source_lang=self.translation_settings.get('source_lang', 'auto'),
+                                                target_lang=self.translation_settings.get('target_lang', 'en')
+                                            )
+                                            
                                             # Translate the subtitle file
-                                            translated_path = self.subtitle_translator.translate_subtitle_file(
+                                            print(f"Starting subtitle translation...", flush=True)
+                                            translated_path = fresh_translator.translate_subtitle_file(
                                                 subtitle_path=Path(subtitle_path),
                                                 preserve_original=True
                                             )
+                                            print(f"Translation completed: {translated_path.name}", flush=True)
+                                            
                                             translated_files[format_type] = str(translated_path)
                                             print(f"  Translated {format_type}: {translated_path.name}")
                                         except Exception as e:
@@ -179,18 +196,25 @@ class TranscriptionWorker(QThread):
                                 if translated_files:
                                     completion_info['translated_subtitle_files'] = translated_files
                                     print(f"Translation complete: {len(translated_files)} subtitle(s) translated")
+                                    # Update progress to show translation is complete
+                                    self.progress_updated.emit(1.0, "Processing complete with translation")
                                 else:
                                     print(f"DEBUG: No files were translated")
+                                    self.progress_updated.emit(1.0, "Processing complete (translation failed)")
                                     
                             except Exception as e:
                                 import traceback
                                 logger.error(f"Translation failed: {e}")
                                 print(f"Translation failed: {e}")
                                 print(f"DEBUG: Outer exception traceback:\n{traceback.format_exc()}")
+                                # Update progress to show translation failed
+                                self.progress_updated.emit(1.0, "Processing complete (translation error)")
                         else:
                             print(f"DEBUG: Translation skipped - translator={self.subtitle_translator is not None}, has_files={result.get('subtitle_files') is not None}")
+                            # No translation needed, processing is complete
+                            self.progress_updated.emit(1.0, "Processing complete with subtitles")
 
-                    # Emit completion signal
+                    # Emit completion signal AFTER translation (if any) is done
                     self.file_completed.emit(completion_info)
 
                     # Log completion status

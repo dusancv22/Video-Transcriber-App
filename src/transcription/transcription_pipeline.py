@@ -538,9 +538,10 @@ class TranscriptionPipeline:
             # Calculate total time
             total_time = time.time() - start_time
             
-            # Final progress update
+            # Progress update - but not final if translation is pending
             if progress_callback:
-                progress_callback(1.0, "Processing complete with subtitles")
+                # Don't say "complete" yet if translation will happen
+                progress_callback(0.95, "Subtitles generated, preparing for translation..." if subtitle_formats else "Processing complete")
             
             print(f"\nProcessing completed successfully!")
             print(f"Total processing time: {total_time:.2f} seconds")
