@@ -24,6 +24,38 @@ A powerful desktop application that converts video files into accurate text tran
 - **?????? Pause/Resume**: Control processing without losing progress
 - **???? Modern UI**: Clean, intuitive interface with drag-and-drop support
 
+## ???? Quick Start (Windows)
+
+**For first-time setup:**
+```bash
+# 1. Clone the repository
+git clone https://github.com/yourusername/video-transcriber.git
+cd video-transcriber
+
+# 2. Create virtual environment
+python -m venv venv
+
+# 3. Activate and install dependencies
+venv\Scripts\activate
+pip install -r requirements.txt
+
+# 4. Install PyTorch (choose one based on your setup)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118  # For CUDA 11.8
+# OR
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121  # For CUDA 12.1
+# OR
+pip install torch torchvision torchaudio  # For CPU only
+```
+
+**To run the app (after setup):**
+```bash
+run_app.bat
+```
+
+That's it! The batch file handles activation and running automatically.
+
+---
+
 ## ???? Installation
 
 ### Option 1: Download Pre-built Executable (Windows)
@@ -74,7 +106,25 @@ pip install torch torchvision torchaudio
 ```
 
 #### Step 5: Run the Application
+
+**Option A: Use the Batch File (Windows - Recommended)**
 ```bash
+run_app.bat
+```
+The batch file will automatically:
+- Check if virtual environment exists
+- Activate the virtual environment
+- Launch the application
+- Display helpful error messages if something goes wrong
+
+**Option B: Manual Run**
+```bash
+# Windows
+venv\Scripts\activate
+python run.py
+
+# macOS/Linux
+source venv/bin/activate
 python run.py
 ```
 
@@ -123,7 +173,9 @@ On first use, the app will automatically download the selected model from OpenAI
 ### Basic Workflow
 
 1. **Start the Application**
-   - Run `VideoTranscriber.exe` or `python run.py`
+   - Run `VideoTranscriber.exe` (if using pre-built executable)
+   - Or run `run_app.bat` (Windows - automatically activates venv)
+   - Or run `python run.py` (after manually activating virtual environment)
 
 2. **Configure Settings**
    - Select output directory for transcripts
@@ -235,6 +287,7 @@ video-transcriber/
 ???   ????????? input_handling/         # File management
 ???   ????????? config/                 # Settings management
 ????????? run.py                      # Application entry point
+????????? run_app.bat                 # Windows launcher (auto-activates venv)
 ????????? requirements.txt            # Python dependencies
 ????????? VideoTranscriber.spec       # PyInstaller configuration
 ????????? build_exe.bat              # Build script
