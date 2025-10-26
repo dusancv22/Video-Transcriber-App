@@ -142,6 +142,13 @@ class LanguageDetector:
         if any('\u0400' <= char <= '\u04ff' for char in text):
             return 'ru'
         
+        # Check for common Portuguese words/patterns (before Spanish as they share some words)
+        portuguese_indicators = ['que', 'de', 'o', 'a', 'e', 'é', 'do', 'da', 'em', 'um', 'uma', 
+                                'para', 'com', 'não', 'por', 'se', 'na', 'no', 'os', 'as', 
+                                'dos', 'das', 'mais', 'foi', 'ser', 'são', 'está', 'tem', 
+                                'tinha', 'pelo', 'pela', 'você', 'isso', 'ção', 'ões', 'ã', 'õ']
+        portuguese_count = sum(1 for word in portuguese_indicators if word in text_lower)
+        
         # Check for common Spanish words/patterns
         spanish_indicators = ['que', 'de', 'la', 'el', 'en', 'y', 'los', 'las', 'por', 'con', 'para', 'está', 'ñ']
         spanish_count = sum(1 for word in spanish_indicators if word in text_lower)
@@ -160,6 +167,7 @@ class LanguageDetector:
         
         # Simple scoring
         scores = {
+            'pt': portuguese_count,
             'es': spanish_count,
             'fr': french_count,
             'de': german_count,

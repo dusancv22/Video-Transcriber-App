@@ -209,7 +209,19 @@ class VADManager:
             
             # Use pydub to convert
             audio = AudioSegment.from_file(str(audio_path))
+            
+            # Log the duration to debug truncation issues
+            duration_seconds = len(audio) / 1000.0
+            logger.info(f"Audio duration after loading: {duration_seconds:.2f} seconds")
+            print(f"DEBUG: Loaded audio duration: {duration_seconds:.2f} seconds ({duration_seconds/60:.2f} minutes)")
+            
             audio.export(str(temp_wav_path), format='wav')
+            
+            # Verify the exported file duration
+            exported_audio = AudioSegment.from_file(str(temp_wav_path))
+            exported_duration = len(exported_audio) / 1000.0
+            logger.info(f"Exported WAV duration: {exported_duration:.2f} seconds")
+            print(f"DEBUG: Exported WAV duration: {exported_duration:.2f} seconds ({exported_duration/60:.2f} minutes)")
             
             return temp_wav_path
             

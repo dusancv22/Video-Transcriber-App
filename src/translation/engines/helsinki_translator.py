@@ -27,7 +27,8 @@ class HelsinkiTranslator:
         ('en', 'de'): 'Helsinki-NLP/opus-mt-en-de',
         ('it', 'en'): 'Helsinki-NLP/opus-mt-it-en',
         ('en', 'it'): 'Helsinki-NLP/opus-mt-en-it',
-        ('pt', 'en'): 'Helsinki-NLP/opus-mt-pt-en',
+        # Portuguese - no direct pt-en model, use multilingual
+        # ('pt', 'en'): Uses multilingual fallback
         ('en', 'pt'): 'Helsinki-NLP/opus-mt-en-pt',
         ('ru', 'en'): 'Helsinki-NLP/opus-mt-ru-en',
         ('en', 'ru'): 'Helsinki-NLP/opus-mt-en-ru',
@@ -410,11 +411,18 @@ class HelsinkiTranslator:
                     if not translated_text:
                         # Split by our separator and take the middle part
                         parts = translated_context.split(' | ')
-                        if len(parts) > len(context_parts) // 2:
+                        # Filter out parts that contain markers
+                        clean_parts = []
+                        for part in parts:
+                            if not any(marker in part.upper() for marker in ['TRANSLATE', '<<<', '>>>']):
+                                clean_parts.append(part.strip())
+                        
+                        # Take the middle part if we have enough parts
+                        if clean_parts and len(clean_parts) > context_window:
                             # Take the part that should correspond to current segment
-                            idx = len([p for p in context_parts[:i+1] if p]) - 1
-                            if 0 <= idx < len(parts):
-                                translated_text = parts[idx].strip()
+                            idx = min(context_window, len(clean_parts) // 2)
+                            if 0 <= idx < len(clean_parts):
+                                translated_text = clean_parts[idx]
                     
                     # Pattern 3: If still no match, use a heuristic
                     if not translated_text:
@@ -434,8 +442,15 @@ class HelsinkiTranslator:
                     
                     # Clean up any remaining artifacts
                     if translated_text:
+                        # Remove all marker artifacts
                         translated_text = re.sub(r'<<<[^>]*>>>', '', translated_text).strip()
-                        translated_text = re.sub(r'\|\s*\|', '', translated_text).strip()
+                        translated_text = re.sub(r'TRANSLATE[_\s]THIS|END[_\s]TRANSLATE', '', translated_text, flags=re.IGNORECASE).strip()
+                        # Remove separator artifacts
+                        translated_text = re.sub(r'\s*\|\s*', ' ', translated_text).strip()
+                        # Remove multiple spaces
+                        translated_text = re.sub(r'\s+', ' ', translated_text).strip()
+                        # Remove any standalone pipes at the beginning or end
+                        translated_text = re.sub(r'^\|+\s*|\s*\|+$', '', translated_text).strip()
                     
                     translated_seg['translated_text'] = translated_text or current_text
                     translated_seg['original_text'] = current_text
@@ -456,6 +471,111 @@ class HelsinkiTranslator:
             translated_segments.append(translated_seg)
         
         logger.info(f"Context-aware translation complete: {total_segments} segments")
+        print(f"Translation complete: {total_segments} segments translated")
+        return translated_segments
+    
+    def translate_with_sliding_context(self, segments: List[Dict], context_window: int = 3) -> List[Dict]:
+        """
+        Translate segments with context using a sliding window approach.
+        Translates overlapping groups and extracts the center segment.
+        
+        Args:
+            segments: List of subtitle segments
+            context_window: Number of segments before/after to include
+            
+        Returns:
+            List of translated segments
+        """
+        if not self.pipeline:
+            raise RuntimeError("Translation model not initialized")
+        
+        translated_segments = []
+        total_segments = len(segments)
+        
+        print(f"Translating {total_segments} segments with sliding context...", flush=True)
+        
+        for i, segment in enumerate(segments):
+            # Progress logging
+            if i % 10 == 0:
+                logger.info(f"Translating: segment {i+1}/{total_segments}")
+                print(f"  Progress: {i+1}/{total_segments} segments...", flush=True)
+            
+            current_text = segment.get('text', '').strip()
+            translated_seg = segment.copy()
+            
+            if current_text:
+                # Build context window
+                context_segments = []
+                
+                # Add previous segments
+                for j in range(max(0, i - context_window), i):
+                    prev_text = segments[j].get('text', '').strip()
+                    if prev_text:
+                        context_segments.append(prev_text)
+                
+                # Add current segment
+                context_segments.append(current_text)
+                
+                # Add following segments
+                for j in range(i + 1, min(total_segments, i + context_window + 1)):
+                    next_text = segments[j].get('text', '').strip()
+                    if next_text:
+                        context_segments.append(next_text)
+                
+                # Translate the whole context as a paragraph
+                full_context = ' '.join(context_segments)
+                
+                try:
+                    # Translate the full context
+                    translated_full = self.translate(full_context)
+                    
+                    # Split translated text into sentences
+                    translated_sentences = re.split(r'(?<=[.!?])\s+', translated_full)
+                    
+                    # Try to extract the segment that corresponds to current
+                    # Use position-based extraction
+                    if len(translated_sentences) > 0:
+                        # Calculate which sentence(s) should be the current segment
+                        # Based on relative position in the context
+                        start_segments_count = len([s for s in context_segments[:len(context_segments)//2] if s])
+                        
+                        if len(translated_sentences) == 1:
+                            # If only one sentence, use it
+                            translated_text = translated_sentences[0]
+                        elif len(translated_sentences) == len(context_segments):
+                            # Perfect match - take the corresponding position
+                            idx = len([s for s in context_segments[:context_segments.index(current_text)+1] if s]) - 1
+                            if 0 <= idx < len(translated_sentences):
+                                translated_text = translated_sentences[idx]
+                            else:
+                                translated_text = translated_sentences[len(translated_sentences)//2]
+                        else:
+                            # Take middle portion
+                            mid_idx = len(translated_sentences) // 2
+                            translated_text = translated_sentences[mid_idx]
+                    else:
+                        # Fallback
+                        translated_text = translated_full
+                    
+                    translated_seg['translated_text'] = translated_text.strip()
+                    translated_seg['original_text'] = current_text
+                    
+                except Exception as e:
+                    logger.error(f"Failed to translate segment {i}: {e}")
+                    # Fallback to simple translation
+                    try:
+                        translated_text = self.translate(current_text)
+                        translated_seg['translated_text'] = translated_text
+                        translated_seg['original_text'] = current_text
+                    except:
+                        translated_seg['translated_text'] = current_text
+                        translated_seg['translation_error'] = str(e)
+            else:
+                translated_seg['translated_text'] = ''
+            
+            translated_segments.append(translated_seg)
+        
+        logger.info(f"Sliding context translation complete: {total_segments} segments")
         print(f"Translation complete: {total_segments} segments translated")
         return translated_segments
     

@@ -1,5 +1,7 @@
 # Video Transcriber App
 
+For contributor guidelines see [AGENTS.md](AGENTS.md).
+
 A powerful desktop application that converts video files into accurate text transcripts using OpenAI's Whisper AI model. Features a modern GUI built with PyQt6, batch processing capabilities, and advanced text post-processing with filler word removal.
 
 ![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
@@ -7,22 +9,22 @@ A powerful desktop application that converts video files into accurate text tran
 ![Whisper](https://img.shields.io/badge/Whisper-Latest-orange.svg)
 ![License](https://img.shields.io/badge/License-MIT-purple.svg)
 
-## ✨ Features
+## ??? Features
 
-- **🎥 Multi-Format Support**: Process MP4, AVI, MKV, and MOV video files
-- **🚀 GPU Acceleration**: Automatic CUDA detection for 10-20x faster processing
-- **📦 Batch Processing**: Queue multiple videos for automated transcription
-- **🧹 Advanced Text Processing**: 
+- **???? Multi-Format Support**: Process MP4, AVI, MKV, and MOV video files
+- **???? GPU Acceleration**: Automatic CUDA detection for 10-20x faster processing
+- **???? Batch Processing**: Queue multiple videos for automated transcription
+- **???? Advanced Text Processing**: 
   - Automatic filler word removal ("um", "uh", "like", "you know")
   - Smart punctuation and capitalization
   - Paragraph formatting for readability
-- **🎯 Flexible Model Selection**: Choose from tiny, base, small, medium, or large Whisper models
-- **💾 Custom Model Loading**: Load pre-downloaded models to work offline
-- **📊 Real-time Progress**: Track processing with time estimates and progress bars
-- **⏸️ Pause/Resume**: Control processing without losing progress
-- **🎨 Modern UI**: Clean, intuitive interface with drag-and-drop support
+- **???? Flexible Model Selection**: Choose from tiny, base, small, medium, or large Whisper models
+- **???? Custom Model Loading**: Load pre-downloaded models to work offline
+- **???? Real-time Progress**: Track processing with time estimates and progress bars
+- **?????? Pause/Resume**: Control processing without losing progress
+- **???? Modern UI**: Clean, intuitive interface with drag-and-drop support
 
-## 📥 Installation
+## ???? Installation
 
 ### Option 1: Download Pre-built Executable (Windows)
 
@@ -76,7 +78,7 @@ pip install torch torchvision torchaudio
 python run.py
 ```
 
-## 🎯 Model Setup
+## ???? Model Setup
 
 ### Understanding Whisper Models
 
@@ -103,11 +105,11 @@ On first use, the app will automatically download the selected model from OpenAI
 2. **Place Models in a Folder**
    ```
    C:\WhisperModels\
-   ├── tiny.pt
-   ├── base.pt
-   ├── small.pt
-   ├── medium.pt
-   └── large-v3.pt
+   ????????? tiny.pt
+   ????????? base.pt
+   ????????? small.pt
+   ????????? medium.pt
+   ????????? large-v3.pt
    ```
 
 3. **Load in Application**
@@ -116,7 +118,7 @@ On first use, the app will automatically download the selected model from OpenAI
    - Select the folder containing `.pt` files
    - The app will remember this location
 
-## 🚀 Usage Guide
+## ???? Usage Guide
 
 ### Basic Workflow
 
@@ -147,8 +149,8 @@ On first use, the app will automatically download the selected model from OpenAI
 
 #### GPU Acceleration
 The app automatically detects and uses NVIDIA GPUs. Check status in console output:
-- `Model loaded successfully on cuda` = GPU active ✅
-- `Model loaded successfully on cpu` = CPU only ⚠️
+- `Model loaded successfully on cuda` = GPU active ???
+- `Model loaded successfully on cpu` = CPU only ??????
 
 #### Batch Processing Tips
 - Queue processes videos in order (FIFO)
@@ -163,7 +165,7 @@ The app automatically:
 - Creates readable paragraphs
 - Fixes common transcription errors
 
-## 🔧 Building from Source
+## ???? Building from Source
 
 ### Creating Executable
 
@@ -191,7 +193,7 @@ Edit `VideoTranscriber.spec` to:
 - Include additional files
 - Modify build options
 
-## 🐛 Troubleshooting
+## ???? Troubleshooting
 
 ### Common Issues
 
@@ -221,24 +223,24 @@ Edit `VideoTranscriber.spec` to:
 3. **For Long Videos**: Videos auto-split into segments
 4. **For Batch Processing**: Queue overnight with large model
 
-## 📁 Project Structure
+## ???? Project Structure
 
 ```
 video-transcriber/
-├── src/
-│   ├── ui/                    # GUI components
-│   ├── transcription/          # Whisper integration
-│   ├── audio_processing/       # Video/audio conversion
-│   ├── post_processing/        # Text enhancement
-│   ├── input_handling/         # File management
-│   └── config/                 # Settings management
-├── run.py                      # Application entry point
-├── requirements.txt            # Python dependencies
-├── VideoTranscriber.spec       # PyInstaller configuration
-└── build_exe.bat              # Build script
+????????? src/
+???   ????????? ui/                    # GUI components
+???   ????????? transcription/          # Whisper integration
+???   ????????? audio_processing/       # Video/audio conversion
+???   ????????? post_processing/        # Text enhancement
+???   ????????? input_handling/         # File management
+???   ????????? config/                 # Settings management
+????????? run.py                      # Application entry point
+????????? requirements.txt            # Python dependencies
+????????? VideoTranscriber.spec       # PyInstaller configuration
+????????? build_exe.bat              # Build script
 ```
 
-## 🤝 Contributing
+## ???? Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
@@ -248,23 +250,23 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## 📄 License
+## ???? License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## ???? Acknowledgments
 
 - [OpenAI Whisper](https://github.com/openai/whisper) for the amazing transcription model
 - [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) for the GUI framework
 - [MoviePy](https://github.com/Zulko/moviepy) for video processing
 - [PyTorch](https://pytorch.org/) for ML framework
 
-## 💬 Support
+## ???? Support
 
 - **Issues**: [GitHub Issues](https://github.com/yourusername/video-transcriber/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/yourusername/video-transcriber/discussions)
 
-## 🚀 Roadmap
+## ???? Roadmap
 
 - [ ] Support for more video formats
 - [ ] Real-time transcription preview
@@ -276,4 +278,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-Made with ❤️ by [Your Name]
+Made with ?????? by [Your Name]
+
+
+
+

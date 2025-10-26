@@ -368,7 +368,9 @@ class MainWindow(QMainWindow):
         self.translate_checkbox = QCheckBox("Translate")
         self.translate_checkbox.setToolTip(
             "Translate subtitles to another language while preserving timestamps.\n"
-            "Uses free Helsinki-NLP models (no API keys needed)."
+            "- PT to EN: Uses advanced TowerInstruct model (GPU required, best quality)\n"
+            "- Other languages: Uses Helsinki-NLP models (CPU, no API keys needed)\n"
+            "Falls back to standard translation if GPU not available."
         )
         self.translate_checkbox.setStyleSheet(f"""
             QCheckBox {{
@@ -400,16 +402,17 @@ class MainWindow(QMainWindow):
         self.source_lang_combo = QComboBox()
         self.source_lang_combo.addItems([
             "Auto-detect",
+            "Portuguese (pt)",  # Move to top for easier access
             "Spanish (es)",
             "French (fr)",
             "German (de)",
             "Italian (it)",
-            "Portuguese (pt)",
             "Russian (ru)",
             "Chinese (zh)",
             "Japanese (ja)",
             "English (en)"
         ])
+        self.source_lang_combo.currentTextChanged.connect(lambda: self.check_translation_engine())
         self.source_lang_combo.setStyleSheet(f"""
             QComboBox {{
                 background: {ModernTheme.COLORS['surface']};
@@ -457,9 +460,25 @@ class MainWindow(QMainWindow):
             "Japanese (ja)"
         ])
         self.target_lang_combo.setCurrentIndex(0)  # Default to English
+        self.target_lang_combo.currentTextChanged.connect(lambda: self.check_translation_engine())
         self.target_lang_combo.setStyleSheet(self.source_lang_combo.styleSheet())
         self.target_lang_combo.hide()
         translation_layout.addWidget(self.target_lang_combo)
+        
+        # Add translation engine status label
+        self.translation_engine_label = QLabel("")
+        self.translation_engine_label.setStyleSheet(f"""
+            QLabel {{
+                color: {ModernTheme.COLORS['primary']};
+                font-size: 11px;
+                font-weight: bold;
+                padding: 2px 8px;
+                background: {ModernTheme.COLORS['primary']}20;
+                border-radius: 4px;
+            }}
+        """)
+        self.translation_engine_label.hide()
+        translation_layout.addWidget(self.translation_engine_label)
         
         self.translation_group.hide()
         subtitle_section.addWidget(self.translation_group)
@@ -1122,11 +1141,89 @@ class MainWindow(QMainWindow):
             self.target_lang_label.show()
             self.target_lang_combo.show()
             print("Translation enabled - subtitles will be translated after generation")
+            self.check_translation_engine()
         else:
             self.source_lang_label.hide()
             self.source_lang_combo.hide()
             self.target_lang_label.hide()
             self.target_lang_combo.hide()
+            self.translation_engine_label.hide()
+    
+    def check_translation_engine(self):
+        """Check and display which translation engine will be used."""
+        if not self.translate_checkbox.isChecked():
+            self.translation_engine_label.hide()
+            return
+            
+        source_text = self.source_lang_combo.currentText()
+        target_text = self.target_lang_combo.currentText()
+        
+        # Extract language codes
+        source_lang = source_text.split('(')[-1].rstrip(')') if '(' in source_text else 'auto'
+        target_lang = target_text.split('(')[-1].rstrip(')') if '(' in target_text else 'en'
+        
+        # Check if PT→EN and GPU available
+        if source_lang == 'pt' and target_lang == 'en':
+            try:
+                # Check GPU availability safely
+                from src.translation.engines.tower_translator import TowerTranslator
+                gpu_info = TowerTranslator.check_gpu_requirements()
+                
+                if gpu_info['meets_requirements']:
+                    print(f"[OK] PT->EN: Will use TowerInstruct (GPU: {gpu_info['gpu_name']})")
+                    self.translation_engine_label.setText(f"[GPU] TowerInstruct ({gpu_info['gpu_name']})")
+                    self.translation_engine_label.setStyleSheet(f"""
+                        QLabel {{
+                            color: {ModernTheme.COLORS['success']};
+                            font-size: 11px;
+                            font-weight: bold;
+                            padding: 2px 8px;
+                            background: {ModernTheme.COLORS['success']}20;
+                            border-radius: 4px;
+                        }}
+                    """)
+                    self.translation_engine_label.show()
+                else:
+                    print(f"PT->EN: GPU not suitable ({gpu_info['message']}), using standard translation")
+                    self.translation_engine_label.setText("[CPU] Standard Translation")
+                    self.translation_engine_label.setStyleSheet(f"""
+                        QLabel {{
+                            color: {ModernTheme.COLORS['warning']};
+                            font-size: 11px;
+                            font-weight: bold;
+                            padding: 2px 8px;
+                            background: {ModernTheme.COLORS['warning']}20;
+                            border-radius: 4px;
+                        }}
+                    """)
+                    self.translation_engine_label.show()
+            except Exception as e:
+                print(f"PT->EN: TowerInstruct not available: {e}")
+                self.translation_engine_label.setText("Standard Translation")
+                self.translation_engine_label.setStyleSheet(f"""
+                    QLabel {{
+                        color: {ModernTheme.COLORS['text_secondary']};
+                        font-size: 11px;
+                        padding: 2px 8px;
+                        background: {ModernTheme.COLORS['surface']};
+                        border-radius: 4px;
+                    }}
+                """)
+                self.translation_engine_label.show()
+        else:
+            # Other language pairs
+            self.translation_engine_label.setText("Helsinki-NLP Translation")
+            self.translation_engine_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {ModernTheme.COLORS['text_secondary']};
+                    font-size: 11px;
+                    padding: 2px 8px;
+                    background: {ModernTheme.COLORS['surface']};
+                    border-radius: 4px;
+                }}
+            """)
+            self.translation_engine_label.show()
+            print(f"Translation {source_lang} to {target_lang} will use standard Helsinki-NLP models")
     
     def get_selected_subtitle_formats(self):
         """Get list of selected subtitle formats."""

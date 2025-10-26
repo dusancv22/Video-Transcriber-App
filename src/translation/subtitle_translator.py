@@ -14,6 +14,14 @@ from .engines.helsinki_translator import HelsinkiTranslator
 
 logger = logging.getLogger(__name__)
 
+# Try to import TowerTranslator (GPU-only)
+try:
+    from .engines.tower_translator import TowerTranslator
+    TOWER_AVAILABLE = True
+except ImportError:
+    TOWER_AVAILABLE = False
+    logger.info("TowerTranslator not available (missing dependencies)")
+
 
 class SubtitleTranslator:
     """
@@ -26,7 +34,8 @@ class SubtitleTranslator:
         source_lang: str = "auto", 
         target_lang: str = "en",
         use_context: bool = True,
-        context_window: int = 3
+        context_window: int = 3,
+        prefer_tower: bool = True
     ):
         """
         Initialize the subtitle translator.
@@ -36,33 +45,70 @@ class SubtitleTranslator:
             target_lang: Target language code
             use_context: Whether to use surrounding segments for context
             context_window: Number of segments to use as context
+            prefer_tower: Whether to prefer TowerInstruct for PT->EN (GPU required)
         """
         self.source_lang = source_lang
         self.target_lang = target_lang
         self.use_context = use_context
         self.context_window = context_window
+        self.prefer_tower = prefer_tower
         self.translator = None
+        self.using_tower = False  # Track which engine is active
         
         # Initialize translator if source language is specified
         if source_lang != "auto":
             self._initialize_translator(source_lang, target_lang)
     
     def _initialize_translator(self, source_lang: str, target_lang: str):
-        """Initialize the translation engine."""
+        """Initialize the translation engine with smart selection for PT->EN."""
         print(f"DEBUG: _initialize_translator called with {source_lang} -> {target_lang}", flush=True)
+        
+        # Check if this is Portuguese to English translation
+        # TowerInstruct disabled - too slow for practical use (takes 10+ minutes for 87 segments)
+        if False and source_lang == 'pt' and target_lang == 'en' and self.prefer_tower and TOWER_AVAILABLE:
+            # Try TowerInstruct first for PT->EN
+            try:
+                logger.info(f"Attempting to use TowerInstruct (GPU) for PT->EN translation")
+                print(f"Checking GPU availability for advanced PT->EN translation...", flush=True)
+                
+                # Check GPU requirements first
+                gpu_info = TowerTranslator.check_gpu_requirements()
+                print(f"GPU Status: {gpu_info['message']}", flush=True)
+                
+                if gpu_info['meets_requirements']:
+                    print(f"Initializing TowerInstruct on {gpu_info['gpu_name']}...", flush=True)
+                    self.translator = TowerTranslator()
+                    self.using_tower = True
+                    self.source_lang = source_lang
+                    self.target_lang = target_lang
+                    logger.info("Successfully initialized TowerInstruct for PT->EN")
+                    print(f"[OK] Using advanced TowerInstruct translation (GPU accelerated)", flush=True)
+                    return
+                else:
+                    print(f"GPU requirements not met: {gpu_info['message']}", flush=True)
+                    print(f"Falling back to standard translation (CPU)", flush=True)
+                    
+            except RuntimeError as e:
+                logger.info(f"TowerInstruct not available: {e}")
+                print(f"TowerInstruct unavailable: {e}", flush=True)
+                print(f"Using standard translation instead", flush=True)
+            except Exception as e:
+                logger.error(f"Unexpected error initializing TowerInstruct: {e}")
+                print(f"Error with TowerInstruct: {e}", flush=True)
+        
+        # Fall back to Helsinki translator for all other cases
         try:
-            logger.info(f"Initializing translator: {source_lang} -> {target_lang}")
-            print(f"DEBUG: Creating HelsinkiTranslator...", flush=True)
+            logger.info(f"Initializing Helsinki translator: {source_lang} -> {target_lang}")
+            print(f"Initializing standard translator ({source_lang} -> {target_lang})...", flush=True)
             self.translator = HelsinkiTranslator(source_lang, target_lang)
-            print(f"DEBUG: HelsinkiTranslator created successfully", flush=True)
-            print(f"DEBUG: self.translator is now: {self.translator}", flush=True)
+            self.using_tower = False
             self.source_lang = source_lang
             self.target_lang = target_lang
-            print(f"DEBUG: Translator initialization complete", flush=True)
+            print(f"[OK] Standard translator ready", flush=True)
         except Exception as e:
             error_msg = f"Failed to initialize translator for {source_lang} -> {target_lang}: {e}"
             logger.error(error_msg)
-            print(f"DEBUG: ERROR initializing translator: {e}", flush=True)
+            print(f"ERROR: {error_msg}", flush=True)
             raise RuntimeError(error_msg)
     
     def translate_subtitle_file(
@@ -180,22 +226,27 @@ class SubtitleTranslator:
             List of segments with translated text
         """
         print(f"DEBUG: translate_segments called with {len(segments)} segments", flush=True)
-        print(f"DEBUG: self.translator = {self.translator}", flush=True)
+        print(f"DEBUG: Using {'TowerInstruct (GPU)' if self.using_tower else 'Helsinki'} translator", flush=True)
         
         if not self.translator:
             print(f"DEBUG: ERROR - Translator not initialized!", flush=True)
             raise RuntimeError("Translator not initialized")
         
-        logger.info(f"Translating {len(segments)} segments...")
-        print(f"DEBUG: About to call translator methods...", flush=True)
+        logger.info(f"Translating {len(segments)} segments with {'TowerInstruct' if self.using_tower else 'Helsinki'}...")
         
-        # Use context-aware translation for better quality
-        # But with fixed extraction to prevent text bleeding
-        print(f"DEBUG: Using context-aware translation with proper extraction", flush=True)
-        if self.use_context:
-            return self.translator.translate_with_context_fixed(segments, self.context_window)
+        # Use appropriate method based on the engine
+        if self.using_tower:
+            # TowerInstruct has its own context method optimized for GPU
+            if self.use_context:
+                return self.translator.translate_with_context(segments, context_window=2)  # Smaller window for GPU
+            else:
+                return self.translator.translate_segments(segments)
         else:
-            return self.translator.translate_segments(segments)
+            # Helsinki translator with sliding context window
+            if self.use_context:
+                return self.translator.translate_with_sliding_context(segments, self.context_window)
+            else:
+                return self.translator.translate_segments(segments)
     
     def create_translated_subtitle(
         self,
@@ -390,3 +441,29 @@ class SubtitleTranslator:
         if self.translator:
             self.translator.cleanup()
             self.translator = None
+            self.using_tower = False
+    
+    def get_translator_info(self) -> Dict[str, any]:
+        """
+        Get information about the current translator.
+        
+        Returns:
+            Dictionary with translator information
+        """
+        info = {
+            'source_lang': self.source_lang,
+            'target_lang': self.target_lang,
+            'engine': 'TowerInstruct (GPU)' if self.using_tower else 'Helsinki (CPU)',
+            'using_tower': self.using_tower,
+            'context_enabled': self.use_context,
+            'context_window': self.context_window
+        }
+        
+        # Add GPU info if TowerInstruct is available
+        if TOWER_AVAILABLE:
+            gpu_info = TowerTranslator.check_gpu_requirements()
+            info['gpu_status'] = gpu_info
+        else:
+            info['gpu_status'] = {'gpu_available': False, 'message': 'TowerInstruct not installed'}
+        
+        return info

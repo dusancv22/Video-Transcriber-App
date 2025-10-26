@@ -136,10 +136,10 @@ class EnhancedWhisperManager:
         
         start_time = time.time()
         
-        # If VAD is disabled, fall back to parent method
+        # If VAD is disabled, fall back to simple method
         if not use_vad:
-            logger.info("VAD disabled, using standard transcription")
-            return self.transcribe_audio_with_timestamps(audio_path, language)
+            logger.info("VAD disabled, using simple transcription with word timestamps")
+            return self.simple_transcribe_with_timestamps(audio_path, language)
         
         try:
             logger.info(f"Starting VAD-enhanced transcription of: {audio_path.name}")
@@ -416,7 +416,14 @@ class EnhancedWhisperManager:
         Returns:
             Transcription results with accurate timestamps
         """
-        return self.transcribe_with_vad(audio_path, language, use_vad=True)
+        # Try with VAD first
+        try:
+            return self.transcribe_with_vad(audio_path, language, use_vad=True)
+        except Exception as e:
+            logger.warning(f"VAD transcription failed, trying without VAD: {e}")
+            print("VAD transcription failed, trying direct transcription without VAD...")
+            # Fall back to simple transcription without VAD
+            return self.simple_transcribe_with_timestamps(audio_path, language)
     
     def simple_transcribe_with_timestamps(self, audio_path: str | Path, language: str = None) -> Dict[str, Any]:
         """Simple transcription using faster-whisper with word timestamps but without VAD.
