@@ -22,8 +22,10 @@ The Video Transcriber App is a desktop application that converts video files int
 
 **Run the application:**
 ```bash
-python run.py
+./venv/Scripts/python.exe run.py
 ```
+
+**IMPORTANT**: When the user asks to "run the app", ALWAYS use the virtual environment Python (`./venv/Scripts/python.exe`) and run in background mode. Never use system Python.
 
 **Run tests:**
 ```bash

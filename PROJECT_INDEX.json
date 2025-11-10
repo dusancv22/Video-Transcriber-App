@@ -127,15 +127,15 @@
     "README.md": {
       "sections": [
         "Video Transcriber App",
-        "??? Features",
-        "???? Installation",
-        "Option 1: Download Pre-built Executable (Windows)",
-        "Option 2: Run from Source",
-        "Windows",
-        "macOS/Linux",
-        "For CUDA 11.8",
-        "For CUDA 12.1",
-        "For CPU only"
+        "Features",
+        "[QUICK START] Quick Start (Windows)",
+        "1. Clone the repository",
+        "2. Create virtual environment",
+        "3. Activate and install dependencies",
+        "4. Install PyTorch (choose one based on your setup)",
+        "OR",
+        "OR",
+        "[INSTALL] Installation"
       ],
       "architecture_hints": []
     },
@@ -299,7 +299,7 @@
     "listed_only": {
       "json": 2
     },
-    "markdown_files": 15
+    "markdown_files": 34
   },
   "files": {
     "PROJECT_INDEX.json": {
