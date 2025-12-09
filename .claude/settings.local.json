@@ -24,7 +24,7 @@
       "Bash(python test:*)",
       "Bash(venvScriptspip install pysubs2)",
       "Bash(grep:*)",
-      "Bash(venv\\Scripts\\python:*)",
+      "Bash(venv\Scripts\python:*)",
       "WebSearch",
       "Bash(\"C:/Users/Dusan/source/repos/Video Transcriber/Video Transcriber App/venv/Scripts/python.exe\" \"C:/Users/Dusan/source/repos/Video Transcriber/Video Transcriber App/run.py\")",
       "Bash(mkdir:*)",
@@ -32,7 +32,11 @@
       "Read(//tmp/Ditto/DragFiles/**)",
       "Bash(venvScriptsactivate)",
       "Bash(python run.py:*)",
-      "Bash(./venv/Scripts/python.exe:*)"
+      "Bash(./venv/Scripts/python.exe:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(pip uninstall:*)",
+      "Bash(git fetch:*)"
     ],
     "deny": []
   }
