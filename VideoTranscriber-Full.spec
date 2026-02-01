@@ -17,12 +17,12 @@ a = Analysis(
         ('src', 'src'),  # Include all source files
     ],
     hiddenimports=[
-        'whisper',
-        'whisper.model',
-        'whisper.audio',
-        'whisper.decoding',
-        'whisper.tokenizer',
-        'whisper.utils',
+        # Core transcription engine
+        'faster_whisper',
+        'faster_whisper.transcribe',
+        'faster_whisper.vad',
+
+        # PyTorch and audio processing
         'torch',
         'torch._C',
         'torch._C._dynamo',
@@ -30,42 +30,58 @@ a = Analysis(
         'torch._dynamo',
         'torch._functorch',
         'torchaudio',
-        'torchvision',
+        'torchaudio.backend',
+        'torchaudio.backend.soundfile_backend',
+
+        # Numpy
         'numpy',
         'numpy.core._multiarray_umath',
-        'scipy',
-        'scipy.signal',
-        'moviepy',
-        'moviepy.editor',
-        'moviepy.video.io.VideoFileClip',
-        'moviepy.audio.io.AudioFileClip',
-        'imageio',
-        'imageio_ffmpeg',
+
+        # Audio processing libraries
+        'pydub',
+        'pydub.utils',
+        'audioop_lts',
+        'soundfile',
+
+        # Subtitle generation
+        'pysubs2',
+
+        # Video processing
         'ffmpeg',
         'ffmpeg_python',
+
+        # Translation support
+        'transformers',
+        'transformers.models',
+        'transformers.models.auto',
+        'sentencepiece',
+        'sacremoses',
+        'langdetect',
+        'langdetect.lang_detect_exception',
+
+        # PyQt6 GUI
         'PyQt6',
         'PyQt6.QtCore',
         'PyQt6.QtGui',
         'PyQt6.QtWidgets',
-        'numba',
-        'numba.core',
-        'numba.cuda',
-        'tiktoken',
-        'tiktoken_ext',
-        'tiktoken_ext.openai_public',
+
+        # Standard library modules that might need explicit inclusion
         'regex',
-        'openai_whisper',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        # Exclude unnecessary packages to reduce size
         'matplotlib',
         'notebook',
         'jupyter',
         'ipython',
         'pandas',
         'tkinter',
+        'PIL',  # Pillow not needed
+        'cv2',  # OpenCV not needed
+        'scipy',  # Not used in current version
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
