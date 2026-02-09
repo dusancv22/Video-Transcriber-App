@@ -24,7 +24,7 @@
       "Bash(python test:*)",
       "Bash(venvScriptspip install pysubs2)",
       "Bash(grep:*)",
-      "Bash(venv\Scripts\python:*)",
+      "Bash(venv\\Scripts\\python:*)",
       "WebSearch",
       "Bash(\"C:/Users/Dusan/source/repos/Video Transcriber/Video Transcriber App/venv/Scripts/python.exe\" \"C:/Users/Dusan/source/repos/Video Transcriber/Video Transcriber App/run.py\")",
       "Bash(mkdir:*)",
@@ -37,7 +37,16 @@
       "Bash(python:*)",
       "Bash(pip install:*)",
       "Bash(pip uninstall:*)",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "Skill(commit)",
+      "Skill(commit:*)",
+      "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" status)",
+      "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" diff)",
+      "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" log --oneline -n 10)",
+      "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" diff src/transcription/whisper_manager.py)",
+      "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" diff src/transcription/transcription_pipeline.py)",
+      "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" diff .claude/settings.local.json)",
+      "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" add src/transcription/whisper_manager.py src/transcription/transcription_pipeline.py .claude/settings.local.json)"
     ],
     "deny": []
   }

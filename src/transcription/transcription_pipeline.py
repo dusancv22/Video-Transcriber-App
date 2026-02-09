@@ -159,19 +159,19 @@ class TranscriptionPipeline:
         logger.info(f"Starting processing of: {video_path.name}")
         
         try:
-            # Step 1: Convert video to audio
+            # Step 1: Convert input media to audio
             if progress_callback:
-                progress_callback(0.0, "Starting video conversion")
+                progress_callback(0.0, "Starting media conversion")
             
-            print("\nStep 1/4: Converting video to audio...")
+            print("\nStep 1/4: Converting to audio...")
             conversion_start = time.time()
             success, audio_files = self.converter.convert_video_to_audio(
                 str(video_path),
-                lambda p: progress_callback(p * 0.4, "Converting video to audio") if progress_callback else None
+                lambda p: progress_callback(p * 0.4, "Converting to audio") if progress_callback else None
             )
             
             if not success or not audio_files:
-                raise RuntimeError("Failed to convert video to audio")
+                raise RuntimeError("Failed to convert input to audio")
                 
             conversion_time = time.time() - conversion_start
             print(f"Conversion completed in {conversion_time:.2f} seconds")
@@ -202,8 +202,8 @@ class TranscriptionPipeline:
                 
                 try:
                     print(f"DEBUG: Attempting to transcribe: {audio_file}")
-                    # Use transcribe_audio_with_timestamps to get VAD-enhanced transcription
-                    result = self.whisper_manager.transcribe_audio_with_timestamps(audio_file, language=language)
+                    # Use transcribe_audio (no word timestamps) for text-only output
+                    result = self.whisper_manager.transcribe_audio(audio_file, language=language)
                     print(f"DEBUG: Transcription successful for segment {idx}")
                     full_text.append(result['text'])
                     if not detected_language:
@@ -346,19 +346,19 @@ class TranscriptionPipeline:
         logger.info(f"Starting processing with subtitles of: {video_path.name}")
         
         try:
-            # Step 1: Convert video to audio
+            # Step 1: Convert input media to audio
             if progress_callback:
-                progress_callback(0.0, "Starting video conversion")
+                progress_callback(0.0, "Starting media conversion")
             
-            print("\nStep 1/5: Converting video to audio...")
+            print("\nStep 1/5: Converting to audio...")
             conversion_start = time.time()
             success, audio_files = self.converter.convert_video_to_audio(
                 str(video_path),
-                lambda p: progress_callback(p * 0.3, "Converting video to audio") if progress_callback else None
+                lambda p: progress_callback(p * 0.3, "Converting to audio") if progress_callback else None
             )
             
             if not success or not audio_files:
-                raise RuntimeError("Failed to convert video to audio")
+                raise RuntimeError("Failed to convert input to audio")
             
             conversion_time = time.time() - conversion_start
             print(f"Conversion completed in {conversion_time:.2f} seconds")

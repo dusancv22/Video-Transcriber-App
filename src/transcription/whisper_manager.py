@@ -134,7 +134,7 @@ class WhisperManager:
             transcribe_params = {
                 'audio': str(audio_path),
                 'task': 'transcribe',
-                'fp16': False,
+                'fp16': self.device == "cuda",  # Use FP16 on GPU for ~2x speed, FP32 on CPU
                 'temperature': 0.0,
                 'compression_ratio_threshold': 2.4,
                 'logprob_threshold': -1.0,
@@ -316,7 +316,7 @@ class WhisperManager:
             transcribe_params = {
                 'audio': str(audio_path),
                 'task': 'transcribe',  # Ensure we're in transcription mode
-                'fp16': False,  # Use FP32 for better accuracy
+                'fp16': self.device == "cuda",  # Use FP16 on GPU for ~2x speed, FP32 on CPU
                 'temperature': 0.0,  # Eliminate randomness for consistent output
                 'compression_ratio_threshold': 2.4,  # Detect repetitive/low-quality content
                 'logprob_threshold': -1.0,  # Filter out low-confidence transcriptions
