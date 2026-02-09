@@ -95,7 +95,32 @@ class MainWindow(QMainWindow):
         self.output_dir_btn.clicked.connect(self.select_output_dir)
         self.output_dir_btn.setProperty("class", "secondary")
         toolbar.addWidget(self.output_dir_btn)
-        
+
+        self.save_to_source_checkbox = QCheckBox("Save to source folder")
+        self.save_to_source_checkbox.setToolTip(
+            "Save each transcript next to its source file instead of a single output directory"
+        )
+        self.save_to_source_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {ModernTheme.COLORS['text_primary']};
+                font-size: 12px;
+                padding: 4px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 2px solid {ModernTheme.COLORS['outline']};
+                border-radius: 3px;
+                background-color: {ModernTheme.COLORS['surface']};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {ModernTheme.COLORS['primary']};
+                border-color: {ModernTheme.COLORS['primary']};
+            }}
+        """)
+        self.save_to_source_checkbox.stateChanged.connect(self.on_save_to_source_changed)
+        toolbar.addWidget(self.save_to_source_checkbox)
+
         self.clear_btn = QPushButton("Clear Queue")
         self.clear_btn.clicked.connect(self.clear_queue) 
         self.clear_btn.setProperty("class", "danger")
@@ -768,8 +793,9 @@ class MainWindow(QMainWindow):
         self.add_files_btn.setEnabled(False)
         self.add_dir_btn.setEnabled(False)
         self.output_dir_btn.setEnabled(False)
+        self.save_to_source_checkbox.setEnabled(False)
         self.clear_btn.setEnabled(False)
-        
+
         # Enable pause button
         self.pause_btn.setEnabled(True)
         
@@ -792,7 +818,8 @@ class MainWindow(QMainWindow):
                 language_code=self.selected_language_code,
                 subtitle_formats=subtitle_formats,
                 max_chars_per_line=max_chars_per_line,
-                translation_settings=translation_settings
+                translation_settings=translation_settings,
+                save_to_source=self.save_to_source_checkbox.isChecked()
             )
             
             # Connect signals
@@ -863,7 +890,8 @@ class MainWindow(QMainWindow):
         self.progress_group.hide()
         self.add_files_btn.setEnabled(True)
         self.add_dir_btn.setEnabled(True)
-        self.output_dir_btn.setEnabled(True)
+        self.output_dir_btn.setEnabled(not self.save_to_source_checkbox.isChecked())
+        self.save_to_source_checkbox.setEnabled(True)
         self.clear_btn.setEnabled(True)
         self.pause_btn.setEnabled(False)
         self.time_estimate_label.clear()
@@ -1038,6 +1066,21 @@ class MainWindow(QMainWindow):
             print(f"\nOutput directory set to: {directory}")
             self.update_start_button()
 
+    def on_save_to_source_changed(self, state):
+        """Handle save-to-source checkbox toggle."""
+        if state == 2:  # Checked
+            self.output_dir_btn.setEnabled(False)
+            self.output_dir_label.setText("Output: Saving to each file's source folder")
+            print("Save to source folder enabled")
+        else:
+            self.output_dir_btn.setEnabled(True)
+            if self.output_directory:
+                self.output_dir_label.setText(f"Output Directory: {self.output_directory}")
+            else:
+                self.output_dir_label.setText("Output Directory: Not Selected")
+            print("Save to source folder disabled")
+        self.update_start_button()
+
     def clear_queue(self):
         """Clear the processing queue with confirmation."""
         if self.queue_manager.is_processing:
@@ -1071,8 +1114,8 @@ class MainWindow(QMainWindow):
     def update_start_button(self):
         """Update start button state based on queue and output directory."""
         enabled = (
-            self.queue_manager.queue_size > 0 and 
-            self.output_directory is not None and
+            self.queue_manager.queue_size > 0 and
+            (self.output_directory is not None or self.save_to_source_checkbox.isChecked()) and
             not self.queue_manager.is_processing
         )
         self.start_btn.setEnabled(enabled)

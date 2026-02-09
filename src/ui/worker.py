@@ -13,8 +13,9 @@ class TranscriptionWorker(QThread):
     all_completed = pyqtSignal()
     error_occurred = pyqtSignal(str, str)
 
-    def __init__(self, pipeline, queue_manager, output_dir, language_code=None, 
-                 subtitle_formats=None, max_chars_per_line=42, translation_settings=None):
+    def __init__(self, pipeline, queue_manager, output_dir, language_code=None,
+                 subtitle_formats=None, max_chars_per_line=42, translation_settings=None,
+                 save_to_source=False):
         """Initialize the worker thread.
         
         Args:
@@ -34,6 +35,7 @@ class TranscriptionWorker(QThread):
         self.subtitle_formats = subtitle_formats or []
         self.max_chars_per_line = max_chars_per_line
         self.translation_settings = translation_settings or {'enabled': False}
+        self.save_to_source = save_to_source
         self.is_paused = False
         self._stop = False
         self.subtitle_translator = None
@@ -89,12 +91,18 @@ class TranscriptionWorker(QThread):
                         if not self.is_paused:
                             self.progress_updated.emit(progress, status)
 
+                    # Determine output directory for this file
+                    if self.save_to_source:
+                        file_output_dir = next_item.file_path.parent
+                    else:
+                        file_output_dir = self.output_dir
+
                     # Process the video file with or without subtitles
                     if self.subtitle_formats:
                         # Use subtitle-aware processing
                         result = self.pipeline.process_video_with_subtitles(
                             video_path=next_item.file_path,
-                            output_dir=self.output_dir,
+                            output_dir=file_output_dir,
                             progress_callback=progress_callback,
                             language=self.language_code,
                             subtitle_formats=self.subtitle_formats,
@@ -104,7 +112,7 @@ class TranscriptionWorker(QThread):
                         # Use standard processing
                         result = self.pipeline.process_video(
                             video_path=next_item.file_path,
-                            output_dir=self.output_dir,
+                            output_dir=file_output_dir,
                             progress_callback=progress_callback,
                             language=self.language_code
                         )
