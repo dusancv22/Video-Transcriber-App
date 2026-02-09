@@ -201,10 +201,10 @@ class AudioConverter:
 
     def convert_video_to_audio(self, video_path: str, progress_callback: Optional[Callable[[float], None]] = None) -> Tuple[bool, list[str]]:
         """
-        Convert video file to audio (MP3) and split if needed with enhanced progress reporting.
+        Convert a media file (video or audio) to audio (MP3) and split if needed with enhanced progress reporting.
         
         Args:
-            video_path: Path to the video file
+            video_path: Path to the input media file
             progress_callback: Optional callback for progress updates
             
         Returns:
@@ -215,16 +215,17 @@ class AudioConverter:
             video_path = Path(video_path)
             output_path = self.output_dir / f"{video_path.stem}.mp3"
             
-            print(f"\nConverting video to audio: {video_path.name}")
+            print(f"\nConverting media to audio: {video_path.name}")
             print(f"Output path: {output_path}")
             logger.info(f"Starting conversion: {video_path} -> {output_path}")
             
             # Update progress
             if progress_callback:
-                progress_callback(0)
+                # Normalized progress: 0.0 -> 1.0
+                progress_callback(0.0)
             
             # Check if video has audio track and convert using ffmpeg
-            print("Extracting audio from video...")
+            print("Extracting audio...")
             try:
                 (
                     ffmpeg
@@ -242,7 +243,7 @@ class AudioConverter:
             
             # Update progress
             if progress_callback:
-                progress_callback(50)
+                progress_callback(0.5)
             
             print("\nInitial conversion completed, checking if splitting is needed")
             # Split if needed and return list of file paths
@@ -255,7 +256,7 @@ class AudioConverter:
             
             # Final progress update
             if progress_callback:
-                progress_callback(100)
+                progress_callback(1.0)
                 
             logger.info(
                 f"Conversion successful: {video_path.name} -> "

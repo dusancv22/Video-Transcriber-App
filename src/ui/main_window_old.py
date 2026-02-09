@@ -508,9 +508,9 @@ class MainWindow(QMainWindow):
         """Add individual files to the queue with enhanced feedback."""
         files, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select Video Files",
+            "Select Media Files",
             "",
-            "Video Files (*.mp4 *.avi *.mkv *.mov)"
+            "Media Files (*.mp4 *.avi *.mkv *.mov *.webm *.mp3)"
         )
         
         if files:
@@ -532,10 +532,10 @@ class MainWindow(QMainWindow):
             self.update_start_button()
 
     def add_directory(self):
-        """Add all video files from a directory with enhanced feedback."""
+        """Add all supported media files from a directory with enhanced feedback."""
         directory = QFileDialog.getExistingDirectory(
             self,
-            "Select Directory with Videos"
+            "Select Directory with Media Files"
         )
         
         if directory:
@@ -547,10 +547,10 @@ class MainWindow(QMainWindow):
             video_files = []
             
             # Scan all subdirectories
-            print("Scanning for video files...")
+            print("Scanning for media files...")
             for folder in [x for x in directory_path.rglob('*') if x.is_dir()]:
                 video_count = 0
-                for ext in ['.mp4', '.MP4', '.avi', '.mkv', '.mov']:
+                for ext in ['.mp4', '.MP4', '.avi', '.mkv', '.mov', '.webm', '.WEBM', '.mp3', '.MP3']:
                     files = list(folder.glob(f"*{ext}"))
                     video_count += len(files)
                     video_files.extend(files)
@@ -560,7 +560,7 @@ class MainWindow(QMainWindow):
             
             # Check root directory
             root_video_count = 0
-            for ext in ['.mp4', '.MP4', '.avi', '.mkv', '.mov']:
+            for ext in ['.mp4', '.MP4', '.avi', '.mkv', '.mov', '.webm', '.WEBM', '.mp3', '.MP3']:
                 files = list(directory_path.glob(f"*{ext}"))
                 root_video_count += len(files)
                 for file in files:
@@ -571,15 +571,15 @@ class MainWindow(QMainWindow):
                 empty_folders.append(directory_path)
             
             if not video_files:
-                print("No video files found in directory")
+                print("No media files found in directory")
                 QMessageBox.warning(
                     self,
-                    "No Videos Found",
-                    f"No video files found in {directory_path} or its subdirectories."
+                    "No Media Files Found",
+                    f"No supported media files found in {directory_path} or its subdirectories."
                 )
                 return
             
-            print(f"Found {len(video_files)} video files")
+            print(f"Found {len(video_files)} media files")
             
             # Add files to queue
             files_added = 0
@@ -593,11 +593,11 @@ class MainWindow(QMainWindow):
                     print(f"Added to queue: {file_path.name}")
             
             # Create summary message
-            summary_msg = f"Added {files_added} video files to the queue.\n\n"
+            summary_msg = f"Added {files_added} media files to the queue.\n\n"
             
             if empty_folders:
-                print("\nEmpty folders found (no video files):")
-                summary_msg += "The following folders contain no video files:\n"
+                print("\nEmpty folders found (no media files):")
+                summary_msg += "The following folders contain no supported media files:\n"
                 for folder in empty_folders:
                     try:
                         rel_path = folder.relative_to(directory_path)

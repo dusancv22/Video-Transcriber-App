@@ -28,6 +28,13 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Video Transcriber")
         self.setMinimumSize(800, 500)  # More compact size
+
+        # Supported input formats (video + audio). Keep in sync with FileHandler.
+        self.supported_media_suffixes = {'.mp4', '.avi', '.mkv', '.mov', '.webm', '.mp3'}
+        self.supported_media_dialog_filter = (
+            "Media Files (*.mp4 *.avi *.mkv *.mov *.webm *.mp3);;All Files (*)"
+        )
+        self._active_file_path = None
         
         # Set application icon
         icon_path = Path(__file__).parent.parent.parent / "assets" / "icons" / "app_icon.ico"
@@ -50,6 +57,9 @@ class MainWindow(QMainWindow):
         self.current_file_start_time = None
         self.processed_files_times = []
         self.is_paused = False
+
+        # Native status bar (QMainWindow) message updates.
+        self.statusBar().showMessage("Ready")
         
         # Initialize UI
         self.init_ui()
@@ -694,27 +704,58 @@ class MainWindow(QMainWindow):
         """Update progress with enhanced status reporting."""
         if self.is_paused:
             return
-            
+
+        # progress is normalized (0.0 -> 1.0)
+        progress = max(0.0, min(1.0, float(progress)))
+        percent = progress * 100.0
+
         self.status_label.setText(status)
-        self.progress_bar.setValue(int(progress * 100))
+        self.progress_bar.setValue(int(percent))
         
         # Update the queue list item's progress
         current_item = self.queue_manager.current_item
         if current_item:
+            # Detect file change to reset per-file timer/label.
+            if self._active_file_path != current_item.file_path:
+                self._active_file_path = current_item.file_path
+                self.current_file_start_time = time.time()
+
+            total_files = len(self.queue_manager._queue)
+            done_files = len([
+                item for item in self.queue_manager._queue
+                if item.status in (FileStatus.COMPLETED, FileStatus.FAILED)
+            ])
+            current_index = min(done_files + 1, total_files) if total_files else 0
+            self.current_file_label.setText(
+                f"File {current_index}/{total_files}: {current_item.file_path.name}"
+            )
+            self.statusBar().showMessage(
+                f"{current_item.file_path.name} | {status} ({percent:.1f}%)"
+            )
+
             for i in range(self.queue_list.count()):
                 item = self.queue_list.item(i)
                 if str(current_item.file_path) == item.data(Qt.ItemDataRole.UserRole):
-                    item.setText(f"🔄 In Progress ({progress:.1f}%): {current_item.file_path.name}")
+                    item.setText(f"🔄 In Progress ({percent:.1f}%): {current_item.file_path.name}")
                     item.setForeground(Qt.GlobalColor.blue)
                     break
         
         # Print progress to console (use newline to avoid overwriting debug output)
-        print(f"Progress: {progress:.1f}% - {status}")
+        print(f"Progress: {percent:.1f}% - {status}")
 
     def start_processing(self):
         """Start processing with enhanced error handling and status reporting."""
         if not self.queue_manager.queue_size:
             return
+
+        # Reset run-specific state/UI.
+        self.processed_files_times = []
+        self.current_file_start_time = None
+        self._active_file_path = None
+        self.current_file_label.clear()
+        self.status_label.clear()
+        self.progress_bar.setValue(0)
+        self.queue_manager.start_processing()
         
         print("\nStarting processing queue...")
         logger.info("Starting processing queue")
@@ -778,10 +819,10 @@ class MainWindow(QMainWindow):
             print(f"\nCompleted processing: {file_path.name}")
             
             # Record processing time
-            if self.current_file_start_time:
-                processing_time = time.time() - self.current_file_start_time
-                self.processed_files_times.append(processing_time)
-                print(f"Processing time: {processing_time:.2f} seconds")
+            processing_time = result.get('processing_time')
+            if processing_time is not None:
+                self.processed_files_times.append(float(processing_time))
+                print(f"Processing time: {float(processing_time):.2f} seconds")
             
             # Update queue list item
             for i in range(self.queue_list.count()):
@@ -807,6 +848,11 @@ class MainWindow(QMainWindow):
         """Handle completion of all files with final cleanup."""
         print("\nAll files processed - cleaning up...")
         logger.info("All files processed")
+
+        self.queue_manager.stop_processing()
+        self.current_file_start_time = None
+        self._active_file_path = None
+        self.statusBar().showMessage("All files processed")
         
         # Clean up worker
         if self.worker:
@@ -852,15 +898,32 @@ class MainWindow(QMainWindow):
         error_detail = f"Error processing {Path(file_path).name}: {error_msg}"
         logger.error(error_detail)
         print(f"\nError: {error_detail}")
+        self.statusBar().showMessage(f"Error: {Path(file_path).name}")
+
+        # If this error belongs to a queued file, mark it failed so the batch can continue cleanly.
+        try:
+            failed_path = Path(file_path)
+            if any(item.file_path == failed_path for item in self.queue_manager._queue):
+                self.queue_manager.mark_failed(failed_path, error_msg)
+                for i in range(self.queue_list.count()):
+                    item = self.queue_list.item(i)
+                    if str(failed_path) == item.data(Qt.ItemDataRole.UserRole):
+                        item.setText(f"❌ Failed: {failed_path.name}")
+                        item.setForeground(Qt.GlobalColor.red)
+                        break
+        except Exception:
+            # Best-effort; still surface the error to the user.
+            pass
+
         QMessageBox.critical(self, "Error", error_detail)
 
     def add_files(self):
         """Add individual files to the queue with enhanced feedback."""
         files, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select Video Files",
+            "Select Media Files",
             "",
-            "Video Files (*.mp4 *.avi *.mkv *.mov)"
+            self.supported_media_dialog_filter
         )
         
         if files:
@@ -882,10 +945,10 @@ class MainWindow(QMainWindow):
             self.update_start_button()
 
     def add_directory(self):
-        """Add all video files from a directory with enhanced feedback."""
+        """Add all supported media files from a directory with enhanced feedback."""
         directory = QFileDialog.getExistingDirectory(
             self,
-            "Select Directory with Videos"
+            "Select Directory with Media Files"
         )
         
         if directory:
@@ -894,46 +957,42 @@ class MainWindow(QMainWindow):
             
             # Track empty folders
             empty_folders = []
-            video_files = []
+            media_files = []
             
-            # Scan all subdirectories
-            print("Scanning for video files...")
-            for folder in [x for x in directory_path.rglob('*') if x.is_dir()]:
-                video_count = 0
-                for ext in ['.mp4', '.MP4', '.avi', '.mkv', '.mov']:
-                    files = list(folder.glob(f"*{ext}"))
-                    video_count += len(files)
-                    video_files.extend(files)
-                
-                if video_count == 0:
+            # Scan root + all subdirectories for supported media files (case-insensitive).
+            print("Scanning for media files...")
+            folders = [directory_path] + [x for x in directory_path.rglob('*') if x.is_dir()]
+            for folder in folders:
+                try:
+                    folder_media = [
+                        p for p in folder.iterdir()
+                        if p.is_file() and p.suffix.lower() in self.supported_media_suffixes
+                    ]
+                except Exception as e:
+                    logger.warning(f"Failed to scan folder {folder}: {e}")
+                    continue
+
+                if folder_media:
+                    media_files.extend(folder_media)
+                else:
                     empty_folders.append(folder)
             
-            # Check root directory
-            root_video_count = 0
-            for ext in ['.mp4', '.MP4', '.avi', '.mkv', '.mov']:
-                files = list(directory_path.glob(f"*{ext}"))
-                root_video_count += len(files)
-                for file in files:
-                    if file not in video_files:
-                        video_files.append(file)
-                        
-            if root_video_count == 0:
-                empty_folders.append(directory_path)
-            
-            if not video_files:
-                print("No video files found in directory")
+            if not media_files:
+                print("No media files found in directory")
                 QMessageBox.warning(
                     self,
-                    "No Videos Found",
-                    f"No video files found in {directory_path} or its subdirectories."
+                    "No Media Files Found",
+                    f"No supported media files found in {directory_path} or its subdirectories."
                 )
                 return
             
-            print(f"Found {len(video_files)} video files")
+            # Stable order in queue.
+            media_files = sorted(media_files, key=lambda p: str(p).lower())
+            print(f"Found {len(media_files)} media files")
             
             # Add files to queue
             files_added = 0
-            for file_path in video_files:
+            for file_path in media_files:
                 if self.queue_manager.add_file(file_path):
                     item = QListWidgetItem(f"⏳ Queued: {file_path.name}")
                     item.setData(Qt.ItemDataRole.UserRole, str(file_path))
@@ -943,11 +1002,11 @@ class MainWindow(QMainWindow):
                     print(f"Added to queue: {file_path.name}")
             
             # Create summary message
-            summary_msg = f"Added {files_added} video files to the queue.\n\n"
+            summary_msg = f"Added {files_added} media files to the queue.\n\n"
             
             if empty_folders:
-                print("\nEmpty folders found (no video files):")
-                summary_msg += "The following folders contain no video files:\n"
+                print("\nEmpty folders found (no media files):")
+                summary_msg += "The following folders contain no supported media files:\n"
                 for folder in empty_folders:
                     try:
                         rel_path = folder.relative_to(directory_path)

@@ -18,6 +18,20 @@ class TestFileHandler:
         is_valid, message = self.file_handler.validate_file("nonexistent.mp4")
         assert not is_valid
         assert "does not exist" in message
+
+    @pytest.mark.parametrize("filename", ["test_audio.mp3", "test_video.webm"])
+    def test_validate_file_supported_extensions(self, filename):
+        """Supported extensions should validate when file exists and is non-empty."""
+        with open(filename, "w") as f:
+            f.write("dummy content")
+
+        try:
+            is_valid, message = self.file_handler.validate_file(filename)
+            assert is_valid
+            assert message == "File is valid"
+        finally:
+            if os.path.exists(filename):
+                os.remove(filename)
         
     def test_queue_management(self):
         """Test queue management functions"""

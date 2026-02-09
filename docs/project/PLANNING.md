@@ -5,7 +5,7 @@
 The Video Transcriber App is a desktop application that converts video files into text transcripts using OpenAI's Whisper AI model. Built with PyQt6, the application provides a user-friendly GUI for batch processing video files with real-time progress tracking, queue management, and comprehensive error handling. The app is designed for users who need to transcribe multiple video files efficiently with professional-grade accuracy.
 
 ### Key Goals
-- Convert video files (MP4, AVI, MKV, MOV) to accurate text transcripts
+- Convert media files (MP4, AVI, MKV, MOV, WEBM, MP3) to accurate text transcripts
 - Provide an intuitive desktop interface for batch processing
 - Support large file handling through intelligent audio splitting
 - Offer real-time progress tracking with time estimates
@@ -64,7 +64,7 @@ The Video Transcriber App is a desktop application that converts video files int
 ## Features
 
 ### Completed Features
-- **Video File Input Processing:** Multi-format support (MP4, AVI, MKV, MOV) with validation and queue management. Handles individual files and entire directories with recursive scanning. *(Added 2025-01-08)*
+- **Media File Input Processing:** Multi-format support (MP4, AVI, MKV, MOV, WEBM, MP3) with validation and queue management. Handles individual files and entire directories with recursive scanning. *(Added 2025-01-08)*
 - **Audio Conversion Pipeline:** Intelligent video-to-audio conversion using MoviePy with automatic file splitting for large files (>25MB). Supports temporary file management and cleanup. *(Added 2025-01-08)*
 - **Whisper AI Integration:** Advanced speech-to-text using faster-whisper with large model support. Forced English language processing for consistency. GPU acceleration support when available. *(Added 2025-01-08)*
 - **Professional GUI Interface:** Modern PyQt6 interface with drag-and-drop support, real-time progress tracking, and comprehensive status reporting. Includes pause/resume functionality. *(Added 2025-01-08)*
@@ -163,7 +163,7 @@ The application follows a modular, layered architecture with clear separation of
 ## Business Rules
 
 ### File Processing Rules
-- **Supported Formats:** Only MP4, AVI, MKV, MOV video files accepted
+- **Supported Formats:** MP4, AVI, MKV, MOV, WEBM video files and MP3 audio files accepted
 - **File Size Limits:** Files >25MB automatically split into segments for processing
 - **Language Processing:** Currently forced to English for consistent results
 - **Queue Management:** Duplicate files automatically rejected from queue

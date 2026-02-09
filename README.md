@@ -9,9 +9,9 @@ A powerful desktop application that converts video files into accurate text tran
 
 ## ✨ Features
 
-- **🎥 Multi-Format Support**: Process MP4, AVI, MKV, and MOV video files
+- **🎥 Multi-Format Support**: Process MP4, AVI, MKV, MOV, WEBM, and MP3 files
 - **🚀 GPU Acceleration**: Automatic CUDA detection for 10-20x faster processing
-- **📦 Batch Processing**: Queue multiple videos for automated transcription
+- **📦 Batch Processing**: Queue multiple files for automated transcription
 - **🧹 Advanced Text Processing**: 
   - Automatic filler word removal ("um", "uh", "like", "you know")
   - Smart punctuation and capitalization

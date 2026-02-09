@@ -5,11 +5,12 @@ from typing import List, Tuple
 
 class FileHandler:
     def __init__(self):
-        self.supported_formats = {'.mp4', '.avi', '.mkv', '.mov'}
+        # Keep in sync with UI file pickers and directory scanning.
+        self.supported_formats = {'.mp4', '.avi', '.mkv', '.mov', '.webm', '.mp3'}
         self.queued_files: List[Path] = []
 
     def validate_file(self, file_path: str) -> Tuple[bool, str]:
-        """Validate a video file."""
+        """Validate an input media file (video or audio)."""
         path = Path(file_path)
         
         # Check file extension first
