@@ -49,7 +49,8 @@
       "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" add src/transcription/whisper_manager.py src/transcription/transcription_pipeline.py .claude/settings.local.json)",
       "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" diff --staged --stat)",
       "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" commit -m \"$\\(cat <<''EOF''\nfix\\(transcription\\): enable GPU FP16 and skip unnecessary timestamp computation\n\n- Enable FP16 inference when CUDA is available for ~2x transcription speed\n  on GPU while keeping FP32 on CPU for compatibility\n- Use transcribe_audio\\(\\) instead of transcribe_audio_with_timestamps\\(\\) in\n  process_video\\(\\) to avoid unnecessary word-level timestamp computation\n  when subtitles are not being generated\n- Fix malformed JSON in settings.local.json \\(unescaped backslashes\\)\nEOF\n\\)\")",
-      "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" push)"
+      "Bash(git -C \"c:\\\\Users\\\\Dusan\\\\source\\\\repos\\\\Video Transcriber\\\\Video Transcriber App\" push)",
+      "Bash(powershell:*)"
     ],
     "deny": []
   }
