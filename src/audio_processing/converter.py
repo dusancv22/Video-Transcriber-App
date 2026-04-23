@@ -157,11 +157,16 @@ class AudioConverter:
                         overlap_info.append(f"end overlap: {overlap_seconds:.1f}s")
                     print(f"Overlap: {', '.join(overlap_info)}")
                 
-                # Store metadata for potential text deduplication
+                # Store metadata for downstream text/subtitle deduplication.
+                # content_* marks the non-overlapped timeline slice owned by
+                # this chunk; start/end include the audio overlap safety margin.
                 segment_metadata.append({
                     'segment_index': i,
                     'start_time': start_time,
                     'end_time': end_time,
+                    'duration': end_time - start_time,
+                    'content_start_time': i * segment_duration,
+                    'content_end_time': min((i + 1) * segment_duration, duration),
                     'has_start_overlap': has_start_overlap,
                     'has_end_overlap': has_end_overlap,
                     'overlap_seconds': overlap_seconds if (has_start_overlap or has_end_overlap) else 0

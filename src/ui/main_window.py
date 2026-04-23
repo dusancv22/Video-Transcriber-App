@@ -278,9 +278,16 @@ class MainWindow(QMainWindow):
         model_section.addStretch()
         layout.addLayout(model_section)
         
-        # Subtitle export section
-        subtitle_section = QHBoxLayout()
-        subtitle_section.setSpacing(8)
+        # Subtitle export section. Separate rows prevent hidden controls when
+        # subtitle formats and translation options are both visible.
+        subtitle_section = QVBoxLayout()
+        subtitle_section.setSpacing(6)
+        subtitle_header_row = QHBoxLayout()
+        subtitle_header_row.setSpacing(8)
+        subtitle_formats_row = QHBoxLayout()
+        subtitle_formats_row.setSpacing(8)
+        subtitle_translation_row = QHBoxLayout()
+        subtitle_translation_row.setSpacing(8)
         
         # Subtitle export checkbox
         self.subtitle_export_checkbox = QCheckBox("Export Subtitles")
@@ -303,7 +310,7 @@ class MainWindow(QMainWindow):
             }}
         """)
         self.subtitle_export_checkbox.stateChanged.connect(self.on_subtitle_export_changed)
-        subtitle_section.addWidget(self.subtitle_export_checkbox)
+        subtitle_header_row.addWidget(self.subtitle_export_checkbox)
         
         # Faster-whisper checkbox for word-level timestamps
         self.use_faster_whisper_checkbox = QCheckBox("Use Faster-Whisper (Word Timestamps)")
@@ -332,7 +339,8 @@ class MainWindow(QMainWindow):
         # Auto-enable faster-whisper when subtitles are enabled
         self.use_faster_whisper_checkbox.setVisible(False)  # Initially hidden
         self.use_faster_whisper_checkbox.stateChanged.connect(self.on_faster_whisper_changed)
-        subtitle_section.addWidget(self.use_faster_whisper_checkbox)
+        subtitle_header_row.addWidget(self.use_faster_whisper_checkbox)
+        subtitle_header_row.addStretch()
         
         # Subtitle format checkboxes (initially hidden)
         self.subtitle_formats_group = QWidget()
@@ -391,7 +399,8 @@ class MainWindow(QMainWindow):
         subtitle_formats_layout.addWidget(self.max_chars_spinbox)
         
         self.subtitle_formats_group.hide()
-        subtitle_section.addWidget(self.subtitle_formats_group)
+        subtitle_formats_row.addWidget(self.subtitle_formats_group)
+        subtitle_formats_row.addStretch()
         
         # Translation options section (initially hidden)
         self.translation_group = QWidget()
@@ -502,6 +511,8 @@ class MainWindow(QMainWindow):
         
         # Add translation engine status label
         self.translation_engine_label = QLabel("")
+        self.translation_engine_label.setMaximumWidth(260)
+        self.translation_engine_label.setToolTip("Translation engine selected for this language pair")
         self.translation_engine_label.setStyleSheet(f"""
             QLabel {{
                 color: {ModernTheme.COLORS['primary']};
@@ -516,9 +527,12 @@ class MainWindow(QMainWindow):
         translation_layout.addWidget(self.translation_engine_label)
         
         self.translation_group.hide()
-        subtitle_section.addWidget(self.translation_group)
+        subtitle_translation_row.addWidget(self.translation_group)
+        subtitle_translation_row.addStretch()
         
-        subtitle_section.addStretch()
+        subtitle_section.addLayout(subtitle_header_row)
+        subtitle_section.addLayout(subtitle_formats_row)
+        subtitle_section.addLayout(subtitle_translation_row)
         layout.addLayout(subtitle_section)
         
         # Update model status based on detected models

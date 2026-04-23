@@ -11,6 +11,35 @@ import shutil
 from src.transcription.transcription_pipeline import TranscriptionPipeline
 
 
+class TestSubtitleTimelineNormalization:
+    """Regression tests for split-audio subtitle timestamp alignment."""
+
+    def test_chunk_offset_uses_original_media_start_time(self):
+        metadata = [
+            {'start_time': 0.0, 'end_time': 32.5},
+            {'start_time': 27.5, 'end_time': 62.5},
+        ]
+
+        offset = TranscriptionPipeline._get_chunk_timeline_offset(
+            metadata,
+            segment_index=1,
+            fallback_offset=32.5
+        )
+
+        assert offset == 27.5
+
+    def test_primary_window_filters_duplicate_overlap_segments(self):
+        metadata = {
+            'start_time': 27.5,
+            'end_time': 62.5,
+            'content_start_time': 30.0,
+            'content_end_time': 60.0,
+        }
+
+        assert TranscriptionPipeline._is_segment_in_primary_window(31.0, 34.0, metadata)
+        assert not TranscriptionPipeline._is_segment_in_primary_window(27.6, 28.4, metadata)
+
+
 class TestRepetitionFixIntegration:
     """Integration tests for the complete repetition fix pipeline."""
     

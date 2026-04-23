@@ -13,8 +13,13 @@ except ImportError:
     WhisperManager = None
     STANDARD_WHISPER_AVAILABLE = False
 
-# Import EnhancedWhisperManager (faster-whisper)
-from src.transcription.enhanced_whisper_manager import EnhancedWhisperManager
+# Try to import EnhancedWhisperManager (faster-whisper)
+try:
+    from src.transcription.enhanced_whisper_manager import EnhancedWhisperManager
+    ENHANCED_WHISPER_AVAILABLE = True
+except ImportError:
+    EnhancedWhisperManager = None
+    ENHANCED_WHISPER_AVAILABLE = False
 from src.post_processing.text_processor import TextProcessor
 from src.post_processing.advanced_text_processor import AdvancedTextProcessor
 from src.post_processing.combiner import TextCombiner
@@ -127,6 +132,46 @@ class TranscriptionPipeline:
         )
         self.use_advanced_processing = use_advanced_processing
         print(f"Pipeline initialized successfully (Advanced processing: {'Enabled' if use_advanced_processing else 'Disabled'})")
+
+    @staticmethod
+    def _get_chunk_timeline_offset(
+        segment_metadata: List[Dict[str, Any]],
+        segment_index: int,
+        fallback_offset: float
+    ) -> float:
+        """Return the chunk's absolute start time on the original media timeline."""
+        if segment_metadata and segment_index < len(segment_metadata):
+            try:
+                return float(segment_metadata[segment_index].get('start_time', fallback_offset))
+            except (TypeError, ValueError):
+                logger.warning("Invalid segment start_time metadata; falling back to accumulated offset")
+        return fallback_offset
+
+    @staticmethod
+    def _is_segment_in_primary_window(
+        start_time: float,
+        end_time: float,
+        chunk_metadata: Optional[Dict[str, Any]],
+        tolerance: float = 0.05
+    ) -> bool:
+        """Keep subtitles from the non-overlapped slice owned by a split chunk."""
+        if not chunk_metadata:
+            return True
+
+        content_start = chunk_metadata.get('content_start_time')
+        content_end = chunk_metadata.get('content_end_time')
+        if content_start is None or content_end is None:
+            return True
+
+        try:
+            content_start = float(content_start)
+            content_end = float(content_end)
+        except (TypeError, ValueError):
+            logger.warning("Invalid content window metadata; keeping segment")
+            return True
+
+        midpoint = start_time + ((end_time - start_time) / 2)
+        return (content_start - tolerance) <= midpoint <= (content_end + tolerance)
         
     def process_video(
         self, 
@@ -380,6 +425,18 @@ class TranscriptionPipeline:
             segment_metadata = self.converter.get_last_split_metadata()
             
             for idx, audio_file in enumerate(audio_files, 1):
+                metadata_index = idx - 1
+                chunk_metadata = (
+                    segment_metadata[metadata_index]
+                    if segment_metadata and metadata_index < len(segment_metadata)
+                    else None
+                )
+                chunk_time_offset = self._get_chunk_timeline_offset(
+                    segment_metadata,
+                    metadata_index,
+                    current_time_offset
+                )
+
                 print(f"\nProcessing segment {idx}/{total_segments}")
                 progress_base = 0.3
                 progress_per_segment = 0.4 / total_segments
@@ -401,9 +458,19 @@ class TranscriptionPipeline:
                     # Adjust timestamps for multi-segment files
                     if result.get('segments'):
                         for segment in result['segments']:
+                            adjusted_start = segment['start'] + chunk_time_offset
+                            adjusted_end = segment['end'] + chunk_time_offset
+
+                            if not self._is_segment_in_primary_window(
+                                adjusted_start,
+                                adjusted_end,
+                                chunk_metadata
+                            ):
+                                continue
+
                             adjusted_segment = {
-                                'start': segment['start'] + current_time_offset,
-                                'end': segment['end'] + current_time_offset,
+                                'start': adjusted_start,
+                                'end': adjusted_end,
                                 'text': segment['text']
                             }
                             
@@ -414,8 +481,8 @@ class TranscriptionPipeline:
                                 for word in segment['words']:
                                     adjusted_words.append({
                                         'word': word['word'],
-                                        'start': word['start'] + current_time_offset,
-                                        'end': word['end'] + current_time_offset,
+                                        'start': word['start'] + chunk_time_offset,
+                                        'end': word['end'] + chunk_time_offset,
                                         'probability': word.get('probability', 1.0)
                                     })
                                 adjusted_segment['words'] = adjusted_words
@@ -423,14 +490,14 @@ class TranscriptionPipeline:
                             all_segments.append(adjusted_segment)
                     
                     # Update time offset for next segment
-                    if segment_metadata and idx <= len(segment_metadata):
-                        # Use actual duration from metadata if available
-                        segment_duration = segment_metadata[idx - 1].get('duration', 0)
-                        if segment_duration > 0:
-                            current_time_offset += segment_duration
-                        elif result.get('segments'):
-                            # Fallback to last segment end time
-                            current_time_offset += result['segments'][-1]['end']
+                    if chunk_metadata:
+                        try:
+                            current_time_offset = float(chunk_metadata.get('end_time', current_time_offset))
+                        except (TypeError, ValueError):
+                            logger.warning("Invalid segment end_time metadata; keeping previous offset")
+                    elif result.get('segments'):
+                        # Fallback for unsplit files or older converters without metadata.
+                        current_time_offset += result['segments'][-1]['end']
                     
                     if not detected_language:
                         detected_language = result['language']
