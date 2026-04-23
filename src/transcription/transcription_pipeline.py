@@ -337,7 +337,7 @@ class TranscriptionPipeline:
             
         except Exception as e:
             error_msg = f"Error processing video: {e}"
-            logger.error(error_msg)
+            logger.exception(error_msg)
             print(f"\nError: {error_msg}")
             # Attempt cleanup even if processing failed
             self.converter.cleanup_temp_files()
@@ -639,7 +639,7 @@ class TranscriptionPipeline:
             
         except Exception as e:
             error_msg = f"Error processing video with subtitles: {e}"
-            logger.error(error_msg)
+            logger.exception(error_msg)
             print(f"\nError: {error_msg}")
             # Attempt cleanup even if processing failed
             self.converter.cleanup_temp_files()

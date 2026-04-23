@@ -1,5 +1,6 @@
 import sys
 import subprocess
+import logging
 from pathlib import Path
 
 # Prevent FFmpeg (and other console subprocesses) from opening visible
@@ -19,6 +20,23 @@ if sys.platform == "win32":
 # Add the project root directory to Python path
 project_root = Path(__file__).parent
 sys.path.append(str(project_root))
+
+log_file = project_root / "app_output.log"
+logging.basicConfig(
+    filename=str(log_file),
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    force=True
+)
+
+def _log_uncaught_exception(exc_type, exc_value, exc_traceback):
+    logging.getLogger(__name__).critical(
+        "Uncaught exception",
+        exc_info=(exc_type, exc_value, exc_traceback)
+    )
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+sys.excepthook = _log_uncaught_exception
 
 from src.ui.main_window import MainWindow
 from PyQt6.QtWidgets import QApplication

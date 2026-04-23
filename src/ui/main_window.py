@@ -919,6 +919,10 @@ class MainWindow(QMainWindow):
             item for item in self.queue_manager._queue 
             if item.status == FileStatus.FAILED
         ])
+        failed_items = [
+            item for item in self.queue_manager._queue
+            if item.status == FileStatus.FAILED
+        ]
         
         total_time = sum(self.processed_files_times)
         avg_time = total_time / len(self.processed_files_times) if self.processed_files_times else 0
@@ -931,9 +935,23 @@ class MainWindow(QMainWindow):
             f"Total processing time: {total_time:.1f} seconds\n"
             f"Average time per file: {avg_time:.1f} seconds"
         )
+
+        if failed_items:
+            failure_details = "\n".join(
+                f"- {item.file_path.name}: {item.error or 'Unknown error'}"
+                for item in failed_items[:5]
+            )
+            if len(failed_items) > 5:
+                failure_details += f"\n- ...and {len(failed_items) - 5} more"
+            completion_msg += (
+                "\n\nFailed files:\n"
+                f"{failure_details}\n\n"
+                "Full details are saved in app_output.log."
+            )
         
         print(f"\n{completion_msg}")
-        QMessageBox.information(self, "Complete", completion_msg)
+        title = "Complete" if failed_count == 0 else "Completed with Failures"
+        QMessageBox.information(self, title, completion_msg)
 
     def handle_error(self, file_path, error_msg):
         """Handle processing error with enhanced error reporting."""
