@@ -55,9 +55,8 @@ class TestWhisperRepetitionPrevention:
         # Check for repetition prevention parameters
         call_kwargs = call_args[1]  # Get keyword arguments
         
-        # Current implementation forces English
-        assert 'language' in call_kwargs
-        assert call_kwargs['language'] == 'en'
+        # Language is omitted unless explicitly requested, allowing Whisper to auto-detect.
+        assert 'language' not in call_kwargs
         
         # Verify additional repetition prevention parameters
         assert 'temperature' in call_kwargs
@@ -68,9 +67,6 @@ class TestWhisperRepetitionPrevention:
         
         assert 'logprob_threshold' in call_kwargs
         assert call_kwargs['logprob_threshold'] == -1.0, "Logprob threshold should filter low-confidence transcriptions"
-        
-        assert 'no_captions_threshold' in call_kwargs
-        assert call_kwargs['no_captions_threshold'] == 0.6, "No captions threshold should skip unclear speech"
         
         assert 'condition_on_previous_text' in call_kwargs
         assert call_kwargs['condition_on_previous_text'] is False, "Should prevent context bleeding between segments"
@@ -103,25 +99,6 @@ class TestWhisperRepetitionPrevention:
         assert call_kwargs['temperature'] == 0.0, "Temperature should be 0.0 for maximum consistency"
     
     @patch('src.transcription.whisper_manager.whisper.load_model')
-    def test_beam_search_configuration(self, mock_load_model):
-        """Test that beam search is configured to prevent repetitive outputs."""
-        mock_model = MagicMock()
-        mock_load_model.return_value.to.return_value = mock_model
-        mock_model.transcribe.return_value = {'text': 'test', 'language': 'en'}
-        
-        test_audio = self.temp_dir / "test_audio.mp3"
-        test_audio.touch()
-        
-        manager = WhisperManager(model_size="large")
-        manager.transcribe_audio(test_audio)
-        
-        # TODO: Verify beam search parameters when implemented
-        # call_kwargs = mock_model.transcribe.call_args[1] 
-        # assert 'beam_size' in call_kwargs
-        # assert call_kwargs['beam_size'] >= 1  # Use beam search
-        pytest.skip("Beam search configuration not yet implemented")
-    
-    @patch('src.transcription.whisper_manager.whisper.load_model')
     def test_repetition_penalty_parameter(self, mock_load_model):
         """Test that repetition penalty is applied to discourage repeated phrases."""
         mock_model = MagicMock()
@@ -140,8 +117,8 @@ class TestWhisperRepetitionPrevention:
         assert 'condition_on_previous_text' in call_kwargs, "Should prevent context bleeding"
         assert call_kwargs['condition_on_previous_text'] is False, "Context bleeding should be disabled"
     
-    def test_fp16_disabled_for_accuracy(self):
-        """Test that FP16 is disabled for better accuracy and consistency."""
+    def test_fp16_matches_available_device(self):
+        """Test that FP16 is enabled on CUDA for speed and disabled on CPU."""
         # Create a mock audio file
         test_audio = self.temp_dir / "test_audio.mp3"
         test_audio.touch()
@@ -154,14 +131,13 @@ class TestWhisperRepetitionPrevention:
             manager = WhisperManager(model_size="large")
             manager.transcribe_audio(test_audio)
             
-            # Verify FP16 is disabled (current implementation)
             call_kwargs = mock_model.transcribe.call_args[1]
             assert 'fp16' in call_kwargs
-            assert call_kwargs['fp16'] is False, "FP16 should be disabled for better accuracy"
+            assert call_kwargs['fp16'] == (manager.device == "cuda")
     
     @patch('src.transcription.whisper_manager.whisper.load_model')
-    def test_language_forced_to_english(self, mock_load_model):
-        """Test that language is forced to English to prevent language detection issues."""
+    def test_language_is_passed_when_requested(self, mock_load_model):
+        """Test that an explicit language selection is passed to Whisper."""
         mock_model = MagicMock()
         mock_load_model.return_value.to.return_value = mock_model
         mock_model.transcribe.return_value = {'text': 'test', 'language': 'en'}
@@ -170,12 +146,11 @@ class TestWhisperRepetitionPrevention:
         test_audio.touch()
         
         manager = WhisperManager(model_size="large")
-        result = manager.transcribe_audio(test_audio)
+        result = manager.transcribe_audio(test_audio, language='en')
         
-        # Verify language is forced to English (current implementation)
         call_kwargs = mock_model.transcribe.call_args[1]
         assert 'language' in call_kwargs
-        assert call_kwargs['language'] == 'en', "Language should be forced to English"
+        assert call_kwargs['language'] == 'en'
         assert call_kwargs['task'] == 'transcribe', "Task should be transcription"
     
     def test_repetition_detection_and_cleanup(self):

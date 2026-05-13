@@ -195,6 +195,14 @@ class ModernTheme:
         QPushButton[class="warning"]:hover {{
             background-color: {cls.COLORS['secondary_hover']};
         }}
+
+        QPushButton[class="secondary"]:disabled,
+        QPushButton[class="danger"]:disabled,
+        QPushButton[class="warning"]:disabled {{
+            background-color: {cls.COLORS['outline']};
+            color: {cls.COLORS['text_disabled']};
+            border-color: {cls.COLORS['outline']};
+        }}
         
         /* ========================================
            Progress Bar Styles

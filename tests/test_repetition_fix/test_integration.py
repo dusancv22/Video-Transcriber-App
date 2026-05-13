@@ -3,7 +3,7 @@ Integration tests for the complete repetition bug fix pipeline.
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from pathlib import Path
 import tempfile
 import shutil
@@ -114,7 +114,7 @@ class TestRepetitionFixIntegration:
         ]
         
         # Run the pipeline
-        pipeline = TranscriptionPipeline()
+        pipeline = TranscriptionPipeline(use_vad_enhancement=False)
         result = pipeline.process_video(str(test_video))
         
         # Pipeline should succeed
@@ -156,21 +156,6 @@ class TestRepetitionFixIntegration:
         # thank_you_count = result.lower().count('thank you')
         # assert thank_you_count <= 2, f"Should reduce repetitive 'thank you', got {thank_you_count}"
     
-    def test_overlap_boundary_handling(self):
-        """Test that overlap boundaries don't create artificial repetition."""
-        # TODO: Test the integration between AudioSplitter overlap and TextCombiner
-        # This test would verify that the 2.5-second overlap regions are handled correctly
-        # and don't create new repetition issues
-        
-        pytest.skip("Overlap boundary handling not yet implemented")
-    
-    def test_whisper_parameters_prevent_repetition(self):
-        """Test that Whisper parameters effectively prevent repetitive output."""
-        # TODO: Test that the enhanced Whisper configuration reduces repetition
-        # This would involve testing with actual audio that previously caused repetition
-        
-        pytest.skip("Whisper parameter testing requires audio files")
-    
     @patch('src.transcription.transcription_pipeline.WhisperManager')
     @patch('src.transcription.transcription_pipeline.AudioConverter')
     def test_large_file_segmentation_flow(self, mock_converter, mock_whisper_manager):
@@ -203,7 +188,7 @@ class TestRepetitionFixIntegration:
         mock_whisper_manager.return_value = mock_whisper_instance
         
         # Mock transcription results for each segment
-        def mock_transcribe(audio_file):
+        def mock_transcribe(audio_file, language=None):
             segment_num = int(Path(audio_file).stem.replace('large_segment', ''))
             return {
                 'text': f'This is segment {segment_num} content with some overlap.',
@@ -216,7 +201,7 @@ class TestRepetitionFixIntegration:
         mock_whisper_instance.transcribe_audio.side_effect = mock_transcribe
         
         # Run pipeline
-        pipeline = TranscriptionPipeline()
+        pipeline = TranscriptionPipeline(use_vad_enhancement=False)
         result = pipeline.process_video(str(test_video))
         
         # Should handle large file successfully
@@ -253,7 +238,7 @@ class TestRepetitionFixIntegration:
                 }
                 
                 # Run pipeline
-                pipeline = TranscriptionPipeline()
+                pipeline = TranscriptionPipeline(use_vad_enhancement=False)
                 result = pipeline.process_video(str(test_video))
                 
                 # Should process successfully without repetition issues

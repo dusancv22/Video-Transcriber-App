@@ -99,6 +99,8 @@ class AudioConverter:
             list[str]: List of paths to audio segments
         """
         print(f"\nChecking file size for: {audio_path}")
+        self._last_split_metadata = []
+        split_files = []
         size = self.check_file_size(audio_path)
         print(f"File size: {size:.2f} MB")
         
@@ -108,13 +110,13 @@ class AudioConverter:
         try:
             if size <= max_size_mb:
                 print("File size within limits - no splitting needed")
-                # Reset metadata since no splitting occurred
-                self._last_split_metadata = []
                 return [audio_path]
                 
             # Get audio duration for splitting
             print("Getting audio duration for splitting...")
             duration = self._get_audio_duration(audio_path)
+            if duration <= 0:
+                raise RuntimeError("Could not determine audio duration for splitting")
             
             # Calculate segments
             segments = int(size / max_size_mb) + 1
@@ -122,7 +124,6 @@ class AudioConverter:
             print(f"Splitting into {segments} segments of {segment_duration:.2f} seconds each")
             print(f"Using {overlap_seconds:.1f}s overlap between segments to prevent repetition")
             
-            split_files = []
             segment_metadata = []  # Track overlap information for potential deduplication
             
             for i in range(segments):
@@ -177,8 +178,7 @@ class AudioConverter:
                     split_files.append(str(segment_path))
                     print(f"Segment {i+1} created successfully")
                 else:
-                    print(f"Failed to create segment {i+1}")
-                    logger.error(f"Failed to create segment {i+1}")
+                    raise RuntimeError(f"Failed to create segment {i+1}")
                 
             # Remove original large file
             Path(audio_path).unlink()
@@ -202,7 +202,13 @@ class AudioConverter:
             error_msg = f"Error splitting audio: {str(e)}"
             logger.error(error_msg)
             print(f"Error: {error_msg}")
-            return [audio_path]
+            self._last_split_metadata = []
+            for split_file in split_files:
+                try:
+                    Path(split_file).unlink(missing_ok=True)
+                except Exception as cleanup_error:
+                    logger.warning(f"Error deleting partial segment {split_file}: {cleanup_error}")
+            return [audio_path] if Path(audio_path).exists() else []
 
     def convert_video_to_audio(self, video_path: str, progress_callback: Optional[Callable[[float], None]] = None) -> Tuple[bool, list[str]]:
         """

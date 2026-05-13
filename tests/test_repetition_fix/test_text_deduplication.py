@@ -3,8 +3,6 @@ Tests for text deduplication logic to prevent repetition bug.
 """
 
 import pytest
-from unittest.mock import Mock, patch
-from pathlib import Path
 
 from src.post_processing.text_processor import TextProcessor
 
@@ -89,45 +87,6 @@ class TestTextDeduplication:
         # For now, ensure basic processing works
         assert "attention" in result.lower()
     
-    def test_deduplication_threshold_configuration(self):
-        """Test that deduplication threshold can be configured."""
-        # TODO: Test configurable threshold for what constitutes "excessive" repetition
-        # For example, 3+ consecutive repetitions might be considered excessive
-        # while 2 repetitions might be acceptable
-        pytest.skip("Deduplication threshold configuration not yet implemented")
-    
-    def test_deduplication_window_size(self):
-        """Test deduplication within a sliding window of text."""
-        # Text with repetition spread across a larger window
-        windowed_repetition = (
-            "The project is complete. The work is done. "
-            "The project is complete and ready for review. "
-            "The project is complete in all aspects."
-        )
-        
-        # TODO: Implement windowed deduplication
-        # Should detect "The project is complete" repetition within window
-        result = self.processor.process_transcript(windowed_repetition)
-        
-        # TODO: Verify deduplication when implemented
-        pytest.skip("Windowed deduplication not yet implemented")
-    
-    def test_semantic_deduplication(self):
-        """Test that semantically similar repetitive phrases are detected."""
-        semantic_repetition = (
-            "Thank you for watching. Thanks for viewing. "
-            "Thank you for watching this video. "
-            "Thanks for your time viewing this content."
-        )
-        
-        # TODO: Implement semantic deduplication
-        # Should detect that these are semantically similar repetitive phrases
-        result = self.processor.process_transcript(semantic_repetition)
-        
-        # TODO: Verify semantic deduplication when implemented
-        pytest.skip("Semantic deduplication not yet implemented")
-
-
 class TestDeduplicationEdgeCases:
     """Test edge cases for text deduplication."""
     
@@ -157,16 +116,6 @@ class TestDeduplicationEdgeCases:
         
         # For now, ensure basic processing
         assert "yes" in result.lower()
-    
-    def test_mixed_case_repetition(self):
-        """Test repetition detection across different cases."""
-        mixed_case = "THANK YOU thank you Thank You THANK you for watching."
-        
-        result = self.processor.process_transcript(mixed_case)
-        
-        # TODO: Implement case-insensitive deduplication
-        # Should detect repetition regardless of case
-        pytest.skip("Case-insensitive deduplication not yet implemented")
     
     def test_deduplication_preserves_sentence_structure(self):
         """Test that deduplication preserves overall sentence structure."""
@@ -234,13 +183,6 @@ class TestDeduplicationPerformance:
         assert len(result) > 0
         assert "thank you" in result.lower()
     
-    def test_deduplication_memory_usage(self):
-        """Test that deduplication doesn't consume excessive memory."""
-        # TODO: Test memory usage during deduplication
-        # This is important for processing large transcripts
-        pytest.skip("Memory usage testing not yet implemented")
-
-
 # Test markers
 pytestmark = [
     pytest.mark.unit,

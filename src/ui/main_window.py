@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QLabel, QFileDialog, QProgressBar,
     QListWidget, QListWidgetItem, QMessageBox, QComboBox,
-    QCheckBox, QSpinBox
+    QCheckBox, QSpinBox, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer, QThread
 from PyQt6.QtGui import QIcon, QFont
@@ -27,7 +27,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Video Transcriber")
-        self.setMinimumSize(800, 500)  # More compact size
+        self.setMinimumSize(840, 560)
 
         # Supported input formats (video + audio). Keep in sync with FileHandler.
         self.supported_media_suffixes = {'.mp4', '.avi', '.mkv', '.mov', '.webm', '.mp3'}
@@ -71,29 +71,33 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        # Main layout - minimal spacing
         layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 12, 14, 8)
+        layout.setSpacing(10)
         
         print("Initializing Video Transcriber interface...")
         
         # Toolbar - flat button layout
         toolbar = QHBoxLayout()
         toolbar.setSpacing(8)
+        toolbar.setContentsMargins(0, 0, 0, 0)
+        toolbar.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         
         # Clean buttons without icons
         self.add_files_btn = QPushButton("Add Files")
         self.add_files_btn.clicked.connect(self.add_files)
+        self.add_files_btn.setFixedSize(92, 36)
         toolbar.addWidget(self.add_files_btn)
         
         self.add_dir_btn = QPushButton("Add Directory") 
         self.add_dir_btn.clicked.connect(self.add_directory)
+        self.add_dir_btn.setFixedSize(112, 36)
         toolbar.addWidget(self.add_dir_btn)
         
         self.output_dir_btn = QPushButton("Select Output")
         self.output_dir_btn.clicked.connect(self.select_output_dir)
         self.output_dir_btn.setProperty("class", "secondary")
+        self.output_dir_btn.setFixedSize(116, 36)
         toolbar.addWidget(self.output_dir_btn)
 
         self.save_to_source_checkbox = QCheckBox("Save to source folder")
@@ -119,11 +123,13 @@ class MainWindow(QMainWindow):
             }}
         """)
         self.save_to_source_checkbox.stateChanged.connect(self.on_save_to_source_changed)
+        self.save_to_source_checkbox.setFixedHeight(36)
         toolbar.addWidget(self.save_to_source_checkbox)
 
         self.clear_btn = QPushButton("Clear Queue")
         self.clear_btn.clicked.connect(self.clear_queue) 
         self.clear_btn.setProperty("class", "danger")
+        self.clear_btn.setFixedSize(110, 36)
         toolbar.addWidget(self.clear_btn)
         
         toolbar.addStretch()
@@ -134,16 +140,18 @@ class MainWindow(QMainWindow):
         self.output_dir_label.setStyleSheet(f"""
             color: {ModernTheme.COLORS['text_secondary']};
             font-size: 12px;
-            padding: 4px 8px;
+            padding: 5px 9px;
             border: 1px solid {ModernTheme.COLORS['outline']};
-            border-radius: {ModernTheme.RADIUS['sm']};
+            border-radius: {ModernTheme.RADIUS['md']};
             background-color: {ModernTheme.COLORS['surface_variant']};
+            min-height: 22px;
         """)
         layout.addWidget(self.output_dir_label)
         
         # Model selection section
         model_section = QHBoxLayout()
         model_section.setSpacing(8)
+        model_section.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         
         # Model status label
         self.model_status_label = QLabel("Whisper Model: Default")
@@ -152,10 +160,11 @@ class MainWindow(QMainWindow):
             font-size: 12px;
             padding: 4px 8px;
             border: 1px solid {ModernTheme.COLORS['outline']};
-            border-radius: {ModernTheme.RADIUS['sm']};
+            border-radius: {ModernTheme.RADIUS['md']};
             background-color: {ModernTheme.COLORS['surface_variant']};
             min-width: 200px;
         """)
+        self.model_status_label.setFixedHeight(36)
         model_section.addWidget(self.model_status_label)
         
         # Model size dropdown
@@ -167,7 +176,7 @@ class MainWindow(QMainWindow):
             QComboBox {{
                 background-color: {ModernTheme.COLORS['surface']};
                 border: 1px solid {ModernTheme.COLORS['outline']};
-                border-radius: {ModernTheme.RADIUS['sm']};
+                border-radius: {ModernTheme.RADIUS['md']};
                 padding: 4px 8px;
                 font-size: 12px;
                 min-width: 80px;
@@ -182,6 +191,7 @@ class MainWindow(QMainWindow):
                 border-top: 4px solid {ModernTheme.COLORS['text_secondary']};
             }}
         """)
+        self.model_size_combo.setFixedSize(116, 36)
         model_section.addWidget(self.model_size_combo)
         
         # Language selection dropdown
@@ -189,8 +199,11 @@ class MainWindow(QMainWindow):
         self.language_label.setStyleSheet(f"""
             color: {ModernTheme.COLORS['text_secondary']};
             font-size: 12px;
-            padding: 4px 8px;
+            padding: 0px 2px;
+            border: none;
+            background: transparent;
         """)
+        self.language_label.setFixedHeight(36)
         model_section.addWidget(self.language_label)
         
         self.language_combo = QComboBox()
@@ -251,7 +264,7 @@ class MainWindow(QMainWindow):
             QComboBox {{
                 background-color: {ModernTheme.COLORS['surface']};
                 border: 1px solid {ModernTheme.COLORS['outline']};
-                border-radius: {ModernTheme.RADIUS['sm']};
+                border-radius: {ModernTheme.RADIUS['md']};
                 padding: 4px 8px;
                 font-size: 12px;
                 min-width: 120px;
@@ -266,13 +279,14 @@ class MainWindow(QMainWindow):
                 border-top: 4px solid {ModernTheme.COLORS['text_secondary']};
             }}
         """)
+        self.language_combo.setFixedSize(156, 36)
         model_section.addWidget(self.language_combo)
         
         # Load model button
         self.load_model_btn = QPushButton("Load Model Folder")
         self.load_model_btn.clicked.connect(self.load_model_folder)
         self.load_model_btn.setProperty("class", "secondary")
-        self.load_model_btn.setMaximumWidth(150)
+        self.load_model_btn.setFixedSize(136, 36)
         model_section.addWidget(self.load_model_btn)
         
         model_section.addStretch()
@@ -310,6 +324,7 @@ class MainWindow(QMainWindow):
             }}
         """)
         self.subtitle_export_checkbox.stateChanged.connect(self.on_subtitle_export_changed)
+        self.subtitle_export_checkbox.setFixedHeight(28)
         subtitle_header_row.addWidget(self.subtitle_export_checkbox)
         
         # Faster-whisper checkbox for word-level timestamps
@@ -339,6 +354,7 @@ class MainWindow(QMainWindow):
         # Auto-enable faster-whisper when subtitles are enabled
         self.use_faster_whisper_checkbox.setVisible(False)  # Initially hidden
         self.use_faster_whisper_checkbox.stateChanged.connect(self.on_faster_whisper_changed)
+        self.use_faster_whisper_checkbox.setFixedHeight(28)
         subtitle_header_row.addWidget(self.use_faster_whisper_checkbox)
         subtitle_header_row.addStretch()
         
@@ -571,12 +587,18 @@ class MainWindow(QMainWindow):
         
         # Queue section
         queue_header = QHBoxLayout()
+        queue_header.setContentsMargins(0, 4, 0, 0)
+        queue_header.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         queue_label = QLabel("Queue")
         queue_label.setStyleSheet(f"""
             font-size: 14px;
             font-weight: 600;
             color: {ModernTheme.COLORS['text_primary']};
+            border: none;
+            background: transparent;
+            padding: 0px;
         """)
+        queue_label.setFixedHeight(28)
         queue_header.addWidget(queue_label)
         queue_header.addStretch()
         
@@ -585,13 +607,15 @@ class MainWindow(QMainWindow):
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.pause_btn.setEnabled(False)
         self.pause_btn.setProperty("class", "warning")
-        self.pause_btn.setMaximumWidth(100)
+        self.pause_btn.setFixedSize(86, 34)
+        self.pause_btn.hide()
         queue_header.addWidget(self.pause_btn)
         layout.addLayout(queue_header)
         
         # Queue list
         self.queue_list = QListWidget()
-        self.queue_list.setMinimumHeight(150)
+        self.queue_list.setMinimumHeight(190)
+        self.queue_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.queue_list.setStyleSheet(f"""
             QListWidget {{
                 border: 1px solid {ModernTheme.COLORS['outline']};
@@ -612,6 +636,7 @@ class MainWindow(QMainWindow):
         self.start_btn = QPushButton("Start Processing")
         self.start_btn.clicked.connect(self.start_processing)
         self.start_btn.setEnabled(False)
+        self.start_btn.setFixedHeight(42)
         self.start_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {ModernTheme.COLORS['success']};
@@ -812,6 +837,7 @@ class MainWindow(QMainWindow):
 
         # Enable pause button
         self.pause_btn.setEnabled(True)
+        self.pause_btn.show()
         
         # Show progress section
         self.progress_group.show()
@@ -908,6 +934,7 @@ class MainWindow(QMainWindow):
         self.save_to_source_checkbox.setEnabled(True)
         self.clear_btn.setEnabled(True)
         self.pause_btn.setEnabled(False)
+        self.pause_btn.hide()
         self.time_estimate_label.clear()
         
         # Show completion message with statistics
