@@ -2,20 +2,40 @@ from pathlib import Path
 import ffmpeg
 from typing import Tuple, Optional, Callable
 import logging
+import math
 import time
 import os
 import subprocess
 from datetime import datetime
 
+from src.audio_processing.optimizer import AudioQualityOptimizer
+
 logger = logging.getLogger(__name__)
 
 class AudioConverter:
-    def __init__(self):
-        """Initialize AudioConverter with output directory setup."""
+    # Whisper resamples everything to 16kHz mono internally, so extracting to
+    # 16kHz mono WAV is lossless for transcription purposes and avoids the
+    # quality hit of an intermediate MP3 re-encode.
+    AUDIO_SUFFIX = ".wav"
+
+    def __init__(self, enable_quality_pass: bool = True):
+        """Initialize AudioConverter with output directory setup.
+
+        Args:
+            enable_quality_pass: Analyze loudness after extraction and boost
+                quiet audio so VAD/language detection get a usable signal.
+        """
         self.output_dir = Path("temp/audio")
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._last_split_metadata = []  # Store metadata from last split operation
+        self.enable_quality_pass = enable_quality_pass
+        self.quality_optimizer = AudioQualityOptimizer()
+        self._last_quality_report = {}
         logger.info(f"AudioConverter initialized with output directory: {self.output_dir}")
+
+    def get_last_quality_report(self) -> dict:
+        """Get the audio quality pass report from the last conversion."""
+        return self._last_quality_report.copy()
 
     def get_last_split_metadata(self) -> list:
         """
@@ -62,7 +82,7 @@ class AudioConverter:
             (
                 ffmpeg
                 .input(input_path, ss=start_time, t=duration)
-                .output(output_path, acodec='libmp3lame', ar=44100)
+                .output(output_path, **self._audio_output_params(output_path))
                 .overwrite_output()
                 .run(capture_stdout=True, capture_stderr=True)
             )
@@ -70,6 +90,14 @@ class AudioConverter:
         except Exception as e:
             logger.error(f"Error extracting audio segment: {e}")
             return False
+
+    @staticmethod
+    def _audio_output_params(output_path: str | Path) -> dict:
+        """FFmpeg output parameters matching the target extension."""
+        if str(output_path).lower().endswith('.wav'):
+            # 16kHz mono PCM: exactly what Whisper consumes internally.
+            return {'acodec': 'pcm_s16le', 'ar': 16000, 'ac': 1}
+        return {'acodec': 'libmp3lame', 'ar': 44100}
 
     def check_file_size(self, file_path: str) -> float:
         """
@@ -85,41 +113,41 @@ class AudioConverter:
         logger.info(f"File size check: {file_path} - {size:.2f} MB")
         return size
 
-    def split_audio_if_needed(self, audio_path: str, max_size_mb: float = 25, overlap_seconds: float = 2.5):
+    def split_audio_if_needed(self, audio_path: str, max_duration_seconds: float = 1500.0, overlap_seconds: float = 2.5):
         """
-        Split audio file if larger than max_size_mb with overlap between segments to prevent
-        transcription repetition issues.
-        
+        Split audio file if longer than max_duration_seconds with overlap between segments
+        to prevent transcription repetition issues.
+
+        Splitting is duration-based (not size-based): chunk length is what matters
+        for transcription memory/quality, and duration is stable across audio
+        codecs (a 16kHz WAV is ~15x larger than the equivalent MP3).
+
         Args:
             audio_path: Path to the audio file
-            max_size_mb: Maximum size in MB before splitting is required
+            max_duration_seconds: Maximum duration in seconds before splitting (default: 25 min)
             overlap_seconds: Seconds of overlap between adjacent segments (default: 2.5)
-            
+
         Returns:
             list[str]: List of paths to audio segments
         """
-        print(f"\nChecking file size for: {audio_path}")
+        print(f"\nChecking duration for: {audio_path}")
         self._last_split_metadata = []
         split_files = []
-        size = self.check_file_size(audio_path)
-        print(f"File size: {size:.2f} MB")
-        
-        if size > max_size_mb:
-            print(f"File needs splitting (exceeds {max_size_mb} MB)")
-            
+
         try:
-            if size <= max_size_mb:
-                print("File size within limits - no splitting needed")
-                return [audio_path]
-                
-            # Get audio duration for splitting
-            print("Getting audio duration for splitting...")
             duration = self._get_audio_duration(audio_path)
             if duration <= 0:
                 raise RuntimeError("Could not determine audio duration for splitting")
-            
+            print(f"Audio duration: {duration:.1f}s ({duration / 60:.1f} min)")
+
+            if duration <= max_duration_seconds:
+                print("Duration within limits - no splitting needed")
+                return [audio_path]
+
+            print(f"File needs splitting (exceeds {max_duration_seconds / 60:.0f} min)")
+
             # Calculate segments
-            segments = int(size / max_size_mb) + 1
+            segments = math.ceil(duration / max_duration_seconds)
             segment_duration = duration / segments
             print(f"Splitting into {segments} segments of {segment_duration:.2f} seconds each")
             print(f"Using {overlap_seconds:.1f}s overlap between segments to prevent repetition")
@@ -147,7 +175,8 @@ class AudioConverter:
                     has_start_overlap = start_time > 0
                     has_end_overlap = end_time < duration
                 
-                segment_path = Path(audio_path).parent / f"{Path(audio_path).stem}_part{i+1}.mp3"
+                source_path = Path(audio_path)
+                segment_path = source_path.parent / f"{source_path.stem}_part{i+1}{source_path.suffix}"
                 print(f"\nCreating segment {i+1}/{segments}: {segment_path.name}")
                 print(f"Time range: {start_time:.2f}s to {end_time:.2f}s")
                 if has_start_overlap or has_end_overlap:
@@ -212,36 +241,37 @@ class AudioConverter:
 
     def convert_video_to_audio(self, video_path: str, progress_callback: Optional[Callable[[float], None]] = None) -> Tuple[bool, list[str]]:
         """
-        Convert a media file (video or audio) to audio (MP3) and split if needed with enhanced progress reporting.
-        
+        Convert a media file (video or audio) to 16kHz mono WAV and split if needed,
+        with an optional loudness quality pass for quiet audio.
+
         Args:
             video_path: Path to the input media file
             progress_callback: Optional callback for progress updates
-            
+
         Returns:
             Tuple[bool, list[str]]: Success status and list of audio file paths
         """
         try:
             start_time = time.time()
             video_path = Path(video_path)
-            output_path = self.output_dir / f"{video_path.stem}.mp3"
-            
+            output_path = self.output_dir / f"{video_path.stem}{self.AUDIO_SUFFIX}"
+
             print(f"\nConverting media to audio: {video_path.name}")
             print(f"Output path: {output_path}")
             logger.info(f"Starting conversion: {video_path} -> {output_path}")
-            
+
             # Update progress
             if progress_callback:
                 # Normalized progress: 0.0 -> 1.0
                 progress_callback(0.0)
-            
+
             # Check if video has audio track and convert using ffmpeg
             print("Extracting audio...")
             try:
                 (
                     ffmpeg
                     .input(str(video_path))
-                    .output(str(output_path), acodec='libmp3lame', ar=44100)
+                    .output(str(output_path), **self._audio_output_params(output_path))
                     .overwrite_output()
                     .run(capture_stdout=True, capture_stderr=True)
                 )
@@ -251,11 +281,31 @@ class AudioConverter:
                 logger.error(error_msg)
                 print(f"Error: {error_msg}")
                 return False, []
-            
+
             # Update progress
             if progress_callback:
                 progress_callback(0.5)
-            
+
+            # Audio quality pass: boost quiet audio so VAD and language
+            # detection work reliably (quiet audio is a common cause of poor
+            # non-English recognition).
+            self._last_quality_report = {}
+            if self.enable_quality_pass:
+                print("\nRunning audio quality pass (loudness check)...")
+                self._last_quality_report = self.quality_optimizer.process(str(output_path))
+                if self._last_quality_report.get('enhanced'):
+                    print(
+                        f"Quiet audio boosted: {self._last_quality_report.get('input_loudness_lufs')} LUFS "
+                        f"-> {self._last_quality_report.get('target_lufs')} LUFS target"
+                    )
+                elif self._last_quality_report.get('analyzed'):
+                    print("Audio loudness OK - no boost needed")
+                else:
+                    print("Loudness analysis unavailable - continuing with original audio")
+
+            if progress_callback:
+                progress_callback(0.6)
+
             print("\nInitial conversion completed, checking if splitting is needed")
             # Split if needed and return list of file paths
             audio_files = self.split_audio_if_needed(str(output_path))
@@ -287,7 +337,8 @@ class AudioConverter:
         try:
             print("\nCleaning up temporary files...")
             count = 0
-            for file in self.output_dir.glob("*.mp3"):
+            temp_audio_files = list(self.output_dir.glob("*.wav")) + list(self.output_dir.glob("*.mp3"))
+            for file in temp_audio_files:
                 try:
                     file.unlink()
                     print(f"Cleaned up: {file.name}")

@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import List, Optional, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 import threading
 import logging
@@ -29,16 +29,38 @@ class QueueManager:
         
     @property
     def is_processing(self) -> bool:
-        return self._processing
-        
+        with self._lock:
+            return self._processing
+
     @property
     def current_item(self) -> Optional[QueueItem]:
-        return self._current_item
-        
+        with self._lock:
+            return self._current_item
+
     @property
     def queue_size(self) -> int:
         with self._lock:
             return len(self._queue)
+
+    def get_items_snapshot(self) -> List[QueueItem]:
+        """Return a thread-safe snapshot of all queue items.
+
+        Items are copies - safe to read from the GUI thread while the worker
+        mutates the live queue. Use this instead of touching _queue directly.
+        """
+        with self._lock:
+            return [replace(item) for item in self._queue]
+
+    def count_by_status(self, *statuses: FileStatus) -> int:
+        """Count queue items whose status is one of the given statuses."""
+        with self._lock:
+            return sum(1 for item in self._queue if item.status in statuses)
+
+    def contains(self, file_path: str | Path) -> bool:
+        """Check whether a file is in the queue."""
+        file_path = Path(file_path)
+        with self._lock:
+            return any(item.file_path == file_path for item in self._queue)
             
     def add_file(self, file_path: str | Path) -> bool:
         """Add a file to the processing queue."""

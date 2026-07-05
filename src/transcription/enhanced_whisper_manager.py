@@ -6,8 +6,10 @@ os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 os.environ['HF_HUB_DISABLE_SYMLINKS'] = '1'
 
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from faster_whisper import WhisperModel
+from faster_whisper.audio import decode_audio
+import threading
 import torch
 import time
 import logging
@@ -18,6 +20,10 @@ from pydub import AudioSegment
 from src.audio_processing.vad_manager import VADManager
 
 logger = logging.getLogger(__name__)
+
+
+class TranscriptionCancelled(Exception):
+    """Raised when the user cancels an in-progress transcription."""
 
 
 class EnhancedWhisperManager:
@@ -53,6 +59,12 @@ class EnhancedWhisperManager:
         self.vad_manager = None  # Initialize lazily
         self.vad_threshold = vad_threshold
         self.merge_gap = merge_gap
+
+        # Control events, set from the GUI/worker thread. faster-whisper's
+        # transcribe() returns a lazy generator, so honoring these inside the
+        # segment-consumption loops gives real mid-file pause/cancel.
+        self.cancel_event = threading.Event()
+        self.pause_event = threading.Event()
         
         logger.info(f"EnhancedWhisperManager initializing with faster-whisper {model_size} on {self.device}")
         logger.info(f"Using compute type: {self.compute_type}")
@@ -110,6 +122,75 @@ class EnhancedWhisperManager:
             print(f"Error: {error_msg}")
             raise RuntimeError(error_msg)
     
+    def reset_control_events(self):
+        """Clear pause/cancel state before a new processing run."""
+        self.cancel_event.clear()
+        self.pause_event.clear()
+
+    def _check_control(self):
+        """Honor pause/cancel requests from the UI.
+
+        Blocks while paused; raises TranscriptionCancelled when cancelled.
+        Called between transcription segments/regions.
+        """
+        while self.pause_event.is_set() and not self.cancel_event.is_set():
+            time.sleep(0.2)
+        if self.cancel_event.is_set():
+            raise TranscriptionCancelled("Transcription cancelled by user")
+
+    def _detect_language_robust(
+        self,
+        audio_path: str | Path,
+        regions: List[Dict[str, float]],
+        max_sample_seconds: float = 30.0
+    ) -> Tuple[Optional[str], float]:
+        """Detect the spoken language from the longest speech region.
+
+        Detecting on the *longest* confirmed-speech region (instead of whatever
+        happens to come first — often music, noise, or a short intro in another
+        language) makes auto-detection far more reliable, especially for
+        Spanish/Portuguese content.
+
+        Args:
+            audio_path: Path to the full audio file
+            regions: VAD speech regions ({'start', 'end'} in seconds)
+            max_sample_seconds: Cap on the detection sample length
+
+        Returns:
+            Tuple of (language code or None, detection probability)
+        """
+        if not regions:
+            return None, 0.0
+
+        temp_segment = None
+        try:
+            longest = max(regions, key=lambda r: r['end'] - r['start'])
+            sample_start = longest['start']
+            sample_end = min(longest['end'], sample_start + max_sample_seconds)
+
+            temp_segment = self.vad_manager.extract_audio_segment(
+                audio_path, sample_start, sample_end
+            )
+            audio = decode_audio(str(temp_segment), sampling_rate=16000)
+            language, probability, _all_probs = self.model.detect_language(audio=audio)
+
+            logger.info(
+                f"Robust language detection on region {sample_start:.1f}s-{sample_end:.1f}s: "
+                f"{language} (probability {probability:.2f})"
+            )
+            if probability < 0.5:
+                logger.warning(
+                    f"Low-confidence language detection ({language} @ {probability:.2f}); "
+                    "consider selecting the language explicitly in the UI"
+                )
+            return language, probability
+        except Exception as e:
+            logger.warning(f"Robust language detection failed, falling back to per-call detection: {e}")
+            return None, 0.0
+        finally:
+            if temp_segment is not None and Path(temp_segment).exists():
+                Path(temp_segment).unlink()
+
     def transcribe_with_vad(
         self,
         audio_path: str | Path,
@@ -176,17 +257,30 @@ class EnhancedWhisperManager:
             
             # Merge close regions to reduce processing
             merged_regions = self.vad_manager.merge_close_regions(vad_regions, self.merge_gap)
-            
+
             print(f"Detected {len(merged_regions)} speech regions")
             logger.info(f"Processing {len(merged_regions)} speech regions")
-            
+
+            # Step 1.5: Detect language up front on the longest speech region.
+            # Previously the language was locked in from whatever the FIRST
+            # region detected (often music/noise/a short intro), which caused
+            # entire files to be transcribed with the wrong language token.
+            detected_language = None
+            if not language:
+                print("Detecting language from longest speech region...")
+                detected_language, detection_prob = self._detect_language_robust(
+                    audio_path, merged_regions
+                )
+                if detected_language:
+                    print(f"Detected language: {detected_language} (confidence {detection_prob:.0%})")
+
             # Step 2: Transcribe each speech region
             all_segments = []
             all_text = []
-            detected_language = None
             padding = 0.2  # 200ms padding on each side to avoid cutting speech
             
             for i, region in enumerate(merged_regions, 1):
+                self._check_control()
                 # Add padding to ensure we don't cut off speech
                 region_start = max(0, region['start'] - padding)
                 region_end = region['end'] + padding
@@ -302,6 +396,8 @@ class EnhancedWhisperManager:
                 'method': 'vad_enhanced'
             }
             
+        except TranscriptionCancelled:
+            raise  # User cancellation must not trigger the fallback path
         except Exception as e:
             logger.error(f"VAD-enhanced transcription failed: {e}", exc_info=True)
             print(f"Warning: VAD-enhanced transcription failed: {str(e)}")
@@ -419,6 +515,8 @@ class EnhancedWhisperManager:
         # Try with VAD first
         try:
             return self.transcribe_with_vad(audio_path, language, use_vad=True)
+        except TranscriptionCancelled:
+            raise  # User cancellation must not trigger the fallback path
         except Exception as e:
             logger.warning(f"VAD transcription failed, trying without VAD: {e}")
             print("VAD transcription failed, trying direct transcription without VAD...")
@@ -454,19 +552,24 @@ class EnhancedWhisperManager:
                 'condition_on_previous_text': False,
                 'word_timestamps': True,  # Enable word-level timestamps
                 'vad_filter': False,  # Disable VAD to avoid onnxruntime issues
+                # Sample multiple 30s windows for auto-detection instead of
+                # trusting only the first one (robust against intros/music).
+                'language_detection_segments': 3,
             }
-            
+
             if language:
                 transcribe_params['language'] = language
             
             # Get segments from faster-whisper
             segments_generator, info = self.model.transcribe(**transcribe_params)
             
-            # Process segments
+            # Process segments (generator is lazy - control checks here give
+            # real mid-file pause/cancel)
             segments = []
             full_text = []
-            
+
             for segment in segments_generator:
+                self._check_control()
                 segment_text = segment.text.strip()
                 if segment_text:
                     segment_dict = {
@@ -516,6 +619,8 @@ class EnhancedWhisperManager:
                 'method': 'simple_faster_whisper'
             }
             
+        except TranscriptionCancelled:
+            raise
         except Exception as e:
             error_msg = f"Simple transcription failed: {str(e)}"
             logger.error(error_msg)
@@ -546,17 +651,22 @@ class EnhancedWhisperManager:
                 'beam_size': 5,
                 'temperature': 0.0,
                 'word_timestamps': False,  # No word timestamps for faster processing
-                'vad_filter': False  # Disable VAD to avoid issues
+                'vad_filter': False,  # Disable VAD to avoid issues
+                # Sample multiple 30s windows for auto-detection instead of
+                # trusting only the first one (robust against intros/music).
+                'language_detection_segments': 3,
             }
-            
+
             if language:
                 transcribe_params['language'] = language
             
             segments_generator, info = self.model.transcribe(**transcribe_params)
             
-            # Collect all text
+            # Collect all text (generator is lazy - control checks here give
+            # real mid-file pause/cancel)
             full_text = []
             for segment in segments_generator:
+                self._check_control()
                 if segment.text.strip():
                     full_text.append(segment.text.strip())
             
@@ -575,6 +685,8 @@ class EnhancedWhisperManager:
                 'file_size_mb': file_size_mb
             }
             
+        except TranscriptionCancelled:
+            raise
         except Exception as e:
             error_msg = f"Standard transcription failed: {str(e)}"
             logger.error(error_msg)

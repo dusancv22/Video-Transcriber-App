@@ -9,8 +9,8 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QMessageBox, QComboBox,
     QCheckBox, QSpinBox, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QTimer, QThread
-from PyQt6.QtGui import QIcon, QFont
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QIcon
 from pathlib import Path
 from src.transcription.transcription_pipeline import TranscriptionPipeline
 from src.input_handling.queue_manager import QueueManager, FileStatus
@@ -50,7 +50,6 @@ class MainWindow(QMainWindow):
         self.queue_manager = QueueManager()
         self.output_directory = None
         self.worker = None
-        self.custom_model_path = None
         self.selected_language_code = None  # Will be set based on language dropdown
         
         # Time tracking
@@ -669,7 +668,6 @@ class MainWindow(QMainWindow):
         print("Interface initialization complete")
         logger.info("UI initialization completed")
 
-    # All other methods remain the same from the original file
     def closeEvent(self, event):
         """Handle application closure with proper thread cleanup."""
         logger.info("Application closing - starting cleanup")
@@ -678,12 +676,15 @@ class MainWindow(QMainWindow):
         if self.worker and self.worker.isRunning():
             print("Active worker thread detected - cleaning up...")
             try:
-                # Stop the worker
+                # stop() cancels the in-progress transcription (the whisper
+                # manager checks a cancel flag between segments), so the worker
+                # normally exits within a couple of seconds.
                 self.worker.stop()
-                # Give the worker a chance to clean up
-                if not self.worker.wait(3000):  # Wait up to 3 seconds
-                    print("Worker thread taking too long to stop - forcing cleanup")
+                if not self.worker.wait(10000):  # Give cancellation 10s to land
+                    logger.error("Worker did not stop after cancellation - forcing termination")
+                    print("Worker thread unresponsive - forcing termination (last resort)")
                     self.worker.terminate()
+                    self.worker.wait(2000)
                 print("Worker thread cleaned up successfully")
             except Exception as e:
                 logger.error(f"Error during worker cleanup: {e}")
@@ -737,10 +738,7 @@ class MainWindow(QMainWindow):
             avg_time_per_file = elapsed_time
         
         # Calculate remaining files
-        remaining_files = len([
-            item for item in self.queue_manager._queue 
-            if item.status == FileStatus.QUEUED
-        ])
+        remaining_files = self.queue_manager.count_by_status(FileStatus.QUEUED)
         
         # Estimate total remaining time
         estimated_remaining = (avg_time_per_file * remaining_files) + (avg_time_per_file - elapsed_time)
@@ -784,11 +782,10 @@ class MainWindow(QMainWindow):
                 self._active_file_path = current_item.file_path
                 self.current_file_start_time = time.time()
 
-            total_files = len(self.queue_manager._queue)
-            done_files = len([
-                item for item in self.queue_manager._queue
-                if item.status in (FileStatus.COMPLETED, FileStatus.FAILED)
-            ])
+            total_files = self.queue_manager.queue_size
+            done_files = self.queue_manager.count_by_status(
+                FileStatus.COMPLETED, FileStatus.FAILED
+            )
             current_index = min(done_files + 1, total_files) if total_files else 0
             self.current_file_label.setText(
                 f"File {current_index}/{total_files}: {current_item.file_path.name}"
@@ -867,6 +864,8 @@ class MainWindow(QMainWindow):
             self.worker.file_completed.connect(self.handle_file_completed)
             self.worker.all_completed.connect(self.handle_all_completed)
             self.worker.error_occurred.connect(self.handle_error)
+            # Release our reference only after the thread has actually finished
+            self.worker.finished.connect(self._on_worker_finished)
             
             # Start processing
             print("Worker thread started")
@@ -875,6 +874,9 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Error starting processing: {e}")
             print(f"\nError starting processing: {e}")
+            # Startup failure: no completion dialog will follow, so a modal is
+            # appropriate here (unlike per-file failures during a batch).
+            QMessageBox.critical(self, "Error", f"Failed to start processing: {e}")
             self.handle_error("Processing", str(e))
 
     def handle_file_completed(self, result):
@@ -920,12 +922,12 @@ class MainWindow(QMainWindow):
         self.current_file_start_time = None
         self._active_file_path = None
         self.statusBar().showMessage("All files processed")
-        
-        # Clean up worker
-        if self.worker:
-            self.worker.stop()
-            self.worker = None
-        
+
+        # The worker's run() ends on its own after emitting all_completed;
+        # _on_worker_finished (connected to QThread.finished) releases the
+        # reference once the thread has actually exited. Dropping it here
+        # risked "QThread destroyed while running".
+
         # Reset UI
         self.progress_group.hide()
         self.add_files_btn.setEnabled(True)
@@ -937,19 +939,17 @@ class MainWindow(QMainWindow):
         self.pause_btn.hide()
         self.time_estimate_label.clear()
         
-        # Show completion message with statistics
+        # Show completion message with statistics (snapshot: thread-safe copy)
+        queue_snapshot = self.queue_manager.get_items_snapshot()
         completed_count = len([
-            item for item in self.queue_manager._queue 
+            item for item in queue_snapshot
             if item.status == FileStatus.COMPLETED
         ])
-        failed_count = len([
-            item for item in self.queue_manager._queue 
-            if item.status == FileStatus.FAILED
-        ])
         failed_items = [
-            item for item in self.queue_manager._queue
+            item for item in queue_snapshot
             if item.status == FileStatus.FAILED
         ]
+        failed_count = len(failed_items)
         
         total_time = sum(self.processed_files_times)
         avg_time = total_time / len(self.processed_files_times) if self.processed_files_times else 0
@@ -980,6 +980,15 @@ class MainWindow(QMainWindow):
         title = "Complete" if failed_count == 0 else "Completed with Failures"
         QMessageBox.information(self, title, completion_msg)
 
+    def _on_worker_finished(self):
+        """Release the worker reference once its thread has fully exited."""
+        worker = self.sender()
+        if worker is not None:
+            worker.deleteLater()
+        if worker is self.worker:
+            self.worker = None
+        logger.info("Worker thread finished and released")
+
     def handle_error(self, file_path, error_msg):
         """Handle processing error with enhanced error reporting."""
         error_detail = f"Error processing {Path(file_path).name}: {error_msg}"
@@ -990,7 +999,7 @@ class MainWindow(QMainWindow):
         # If this error belongs to a queued file, mark it failed so the batch can continue cleanly.
         try:
             failed_path = Path(file_path)
-            if any(item.file_path == failed_path for item in self.queue_manager._queue):
+            if self.queue_manager.contains(failed_path):
                 self.queue_manager.mark_failed(failed_path, error_msg)
                 for i in range(self.queue_list.count()):
                     item = self.queue_list.item(i)
@@ -999,10 +1008,13 @@ class MainWindow(QMainWindow):
                         item.setForeground(Qt.GlobalColor.red)
                         break
         except Exception:
-            # Best-effort; still surface the error to the user.
+            # Best-effort; the failure is still logged and shown in the queue list.
             pass
 
-        QMessageBox.critical(self, "Error", error_detail)
+        # No modal dialog here: with a batch of failing files, one dialog per
+        # failure stacks modal windows while the worker keeps running. Failures
+        # are marked in the queue list immediately and summarized in the
+        # completion dialog (handle_all_completed).
 
     def add_files(self):
         """Add individual files to the queue with enhanced feedback."""
@@ -1125,9 +1137,24 @@ class MainWindow(QMainWindow):
             print(f"\nOutput directory set to: {directory}")
             self.update_start_button()
 
+    @staticmethod
+    def _is_checked(state: int) -> bool:
+        """Interpret a stateChanged signal value (int) as checked/unchecked."""
+        return Qt.CheckState(state) == Qt.CheckState.Checked
+
+    @staticmethod
+    def _lang_code_from_combo_text(text: str, auto_value=None):
+        """Extract the language code from a combo entry like "Spanish (es)".
+
+        Returns auto_value for the "Auto-detect" entry or when no code is present.
+        """
+        if text == "Auto-detect" or '(' not in text:
+            return auto_value
+        return text.split('(')[-1].rstrip(')')
+
     def on_save_to_source_changed(self, state):
         """Handle save-to-source checkbox toggle."""
-        if state == 2:  # Checked
+        if self._is_checked(state):
             self.output_dir_btn.setEnabled(False)
             self.output_dir_label.setText("Output: Saving to each file's source folder")
             print("Save to source folder enabled")
@@ -1193,14 +1220,17 @@ class MainWindow(QMainWindow):
         if self.worker.is_paused:
             # Resume processing
             self.worker.resume()
+            self.is_paused = False
             self.pause_btn.setText("Pause")
             self.pause_btn.setProperty("class", "warning")
             self.pause_btn.setStyle(self.pause_btn.style())  # Force style refresh
             self.status_label.setText("Processing resumed")
             print("Processing resumed")
         else:
-            # Pause processing
+            # Pause processing (takes effect between transcription segments,
+            # typically within a second or two)
             self.worker.pause()
+            self.is_paused = True
             self.pause_btn.setText("Resume")
             self.pause_btn.setStyleSheet(f"""
                 QPushButton {{
@@ -1273,7 +1303,7 @@ class MainWindow(QMainWindow):
     
     def on_subtitle_export_changed(self, state):
         """Handle subtitle export checkbox toggle."""
-        if state == 2:  # Checked
+        if self._is_checked(state):
             self.subtitle_formats_group.show()
             self.use_faster_whisper_checkbox.show()
             self.translation_group.show()  # Show translation options
@@ -1289,14 +1319,14 @@ class MainWindow(QMainWindow):
         """Handle faster-whisper checkbox toggle."""
         if self.pipeline:
             self.pipeline = None  # Force re-initialization with new setting
-            if state == 2:  # Checked
+            if self._is_checked(state):
                 print("Faster-whisper enabled for word-level timestamps (better subtitle timing)")
             else:
                 print("Using standard Whisper (no word timestamps on Windows)")
     
     def on_translate_changed(self, state):
         """Handle translation checkbox toggle."""
-        if state == 2:  # Checked
+        if self._is_checked(state):
             self.source_lang_label.show()
             self.source_lang_combo.show()
             self.target_lang_label.show()
@@ -1311,80 +1341,26 @@ class MainWindow(QMainWindow):
             self.translation_engine_label.hide()
     
     def check_translation_engine(self):
-        """Check and display which translation engine will be used."""
+        """Display the translation engine that will be used.
+
+        Helsinki-NLP is the only engine (TowerInstruct was removed - it was
+        permanently disabled for being too slow, ~10+ minutes per file).
+        """
         if not self.translate_checkbox.isChecked():
             self.translation_engine_label.hide()
             return
-            
-        source_text = self.source_lang_combo.currentText()
-        target_text = self.target_lang_combo.currentText()
-        
-        # Extract language codes
-        source_lang = source_text.split('(')[-1].rstrip(')') if '(' in source_text else 'auto'
-        target_lang = target_text.split('(')[-1].rstrip(')') if '(' in target_text else 'en'
-        
-        # Check if PT→EN and GPU available
-        if source_lang == 'pt' and target_lang == 'en':
-            try:
-                # Check GPU availability safely
-                from src.translation.engines.tower_translator import TowerTranslator
-                gpu_info = TowerTranslator.check_gpu_requirements()
-                
-                if gpu_info['meets_requirements']:
-                    print(f"[OK] PT->EN: Will use TowerInstruct (GPU: {gpu_info['gpu_name']})")
-                    self.translation_engine_label.setText(f"[GPU] TowerInstruct ({gpu_info['gpu_name']})")
-                    self.translation_engine_label.setStyleSheet(f"""
-                        QLabel {{
-                            color: {ModernTheme.COLORS['success']};
-                            font-size: 11px;
-                            font-weight: bold;
-                            padding: 2px 8px;
-                            background: {ModernTheme.COLORS['success']}20;
-                            border-radius: 4px;
-                        }}
-                    """)
-                    self.translation_engine_label.show()
-                else:
-                    print(f"PT->EN: GPU not suitable ({gpu_info['message']}), using standard translation")
-                    self.translation_engine_label.setText("[CPU] Standard Translation")
-                    self.translation_engine_label.setStyleSheet(f"""
-                        QLabel {{
-                            color: {ModernTheme.COLORS['warning']};
-                            font-size: 11px;
-                            font-weight: bold;
-                            padding: 2px 8px;
-                            background: {ModernTheme.COLORS['warning']}20;
-                            border-radius: 4px;
-                        }}
-                    """)
-                    self.translation_engine_label.show()
-            except Exception as e:
-                print(f"PT->EN: TowerInstruct not available: {e}")
-                self.translation_engine_label.setText("Standard Translation")
-                self.translation_engine_label.setStyleSheet(f"""
-                    QLabel {{
-                        color: {ModernTheme.COLORS['text_secondary']};
-                        font-size: 11px;
-                        padding: 2px 8px;
-                        background: {ModernTheme.COLORS['surface']};
-                        border-radius: 4px;
-                    }}
-                """)
-                self.translation_engine_label.show()
-        else:
-            # Other language pairs
-            self.translation_engine_label.setText("Helsinki-NLP Translation")
-            self.translation_engine_label.setStyleSheet(f"""
-                QLabel {{
-                    color: {ModernTheme.COLORS['text_secondary']};
-                    font-size: 11px;
-                    padding: 2px 8px;
-                    background: {ModernTheme.COLORS['surface']};
-                    border-radius: 4px;
-                }}
-            """)
-            self.translation_engine_label.show()
-            print(f"Translation {source_lang} to {target_lang} will use standard Helsinki-NLP models")
+
+        self.translation_engine_label.setText("Helsinki-NLP Translation")
+        self.translation_engine_label.setStyleSheet(f"""
+            QLabel {{
+                color: {ModernTheme.COLORS['text_secondary']};
+                font-size: 11px;
+                padding: 2px 8px;
+                background: {ModernTheme.COLORS['surface']};
+                border-radius: 4px;
+            }}
+        """)
+        self.translation_engine_label.show()
     
     def get_selected_subtitle_formats(self):
         """Get list of selected subtitle formats."""
@@ -1401,23 +1377,14 @@ class MainWindow(QMainWindow):
     def get_translation_settings(self):
         """Get translation settings if enabled."""
         if self.translate_checkbox.isChecked():
-            source_text = self.source_lang_combo.currentText()
-            target_text = self.target_lang_combo.currentText()
-            
-            # Extract language codes
-            if source_text == "Auto-detect":
-                source_lang = "auto"
-            else:
-                # Extract code from format like "Spanish (es)"
-                source_lang = source_text.split('(')[-1].rstrip(')')
-            
-            # Extract target language code
-            target_lang = target_text.split('(')[-1].rstrip(')')
-            
             return {
                 'enabled': True,
-                'source_lang': source_lang,
-                'target_lang': target_lang
+                'source_lang': self._lang_code_from_combo_text(
+                    self.source_lang_combo.currentText(), auto_value='auto'
+                ),
+                'target_lang': self._lang_code_from_combo_text(
+                    self.target_lang_combo.currentText(), auto_value='en'
+                )
             }
         return {'enabled': False}
     
@@ -1425,17 +1392,11 @@ class MainWindow(QMainWindow):
         """Handle language selection change."""
         # Save the language preference
         self.settings.set('transcription_language', language_selection)
-        
-        # Extract language code from selection (e.g., "Spanish (es)" -> "es")
-        if language_selection == "Auto-detect":
-            language_code = None
-        else:
-            # Extract code from format "Language (code)"
-            try:
-                language_code = language_selection.split('(')[1].rstrip(')')
-            except IndexError:
-                language_code = None
-        
+
+        # Extract language code from selection (e.g., "Spanish (es)" -> "es");
+        # None means auto-detect
+        language_code = self._lang_code_from_combo_text(language_selection)
+
         # Store the language code for use during transcription
         self.selected_language_code = language_code
         logger.info(f"Language changed to {language_selection} (code: {language_code})")

@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **⚠️ ACTIVE WORK — READ FIRST:** [`docs/project/CODEBASE_REVIEW_AND_ROADMAP.md`](docs/project/CODEBASE_REVIEW_AND_ROADMAP.md) contains the current findings inventory, prioritized execution roadmap, and progress log. Check it for where work left off before starting anything.
+
 ## Project Overview
 
 The Video Transcriber App is a desktop application that converts video files into text transcripts using OpenAI's Whisper AI model. Built with PyQt6, it provides batch processing, real-time progress tracking, and comprehensive error handling.
@@ -56,11 +58,7 @@ pyinstaller VideoTranscriber-Full.spec
 
 **For detailed technical documentation on the subtitle synchronization architecture, see: [`docs/subtitle-synchronization-architecture.md`](docs/subtitle-synchronization-architecture.md)**
 
-The app now supports dual transcription engines:
-- **Standard Whisper**: Faster processing, segment-level timestamps
-- **Faster-whisper**: Word-level timestamps for accurate subtitle synchronization (works on Windows!)
-
-Users can choose the engine via a checkbox in the UI when exporting subtitles.
+Transcription uses **faster-whisper** exclusively (openai-whisper support was removed 2026-07). Word-level timestamps drive subtitle timing; when unavailable, a smart estimation fallback is used. Subtitle formats: SRT, VTT, ASS, SSA.
 
 ## Architecture Overview
 
@@ -79,8 +77,9 @@ This is a PyQt6-based video transcription application using a 4-layer modular ar
    - `progress_tracker.py`: Tracks processing progress across components
 
 3. **Data Processing Layer** - `src/audio_processing/` & `src/post_processing/`
-   - `converter.py`: Video-to-audio conversion using MoviePy/FFmpeg
-   - `splitter.py`: Splits large audio files (>25MB) into segments
+   - `converter.py`: Media-to-audio conversion (FFmpeg, 16kHz mono WAV) + duration-based splitting with overlap
+   - `optimizer.py`: Audio quality pass — loudness analysis, conditional normalization of quiet audio
+   - `vad_manager.py`: Silero VAD speech-region detection
    - `text_processor.py`: Post-processing for formatting and cleanup
    - `combiner.py`: Intelligent text combination with overlap removal
 
@@ -92,10 +91,10 @@ This is a PyQt6-based video transcription application using a 4-layer modular ar
 
 ### Core Pipeline Flow
 1. **File Input & Validation** → Validates formats → Populates queue
-2. **Audio Conversion** → Extracts audio → Splits if >25MB
-3. **AI Transcription** → Loads Whisper model → Processes segments → Forces English
+2. **Audio Conversion** → Extracts 16kHz mono WAV → Quality pass (boosts quiet audio) → Splits if >25 min
+3. **AI Transcription** → faster-whisper → Language: user-selected (46 languages) or robust auto-detect
 4. **Post-Processing** → Removes duplicates → Formats text
-5. **Output Generation** → Saves transcript → Cleans temporary files
+5. **Output Generation** → Saves transcript (+ optional SRT/VTT/ASS subtitles, optional translation) → Cleans temporary files
 
 ### Critical Implementation Details
 
@@ -114,12 +113,14 @@ This is a PyQt6-based video transcription application using a 4-layer modular ar
 ## Key Dependencies
 
 - **PyQt6** (6.7.0+): GUI framework
-- **faster-whisper** (0.10.0+): Optimized Whisper implementation  
-- **MoviePy**: Video editing library for audio extraction
-- **torch** (2.2.0+): PyTorch backend for Whisper inference
-- **numpy** (1.24.0+): Array operations
-- **ffmpeg-python** (0.2.0): FFmpeg wrapper
+- **faster-whisper** (0.10.0+): Whisper implementation (the only transcription backend)
+- **torch** (2.2.0+): PyTorch backend (Silero VAD, translation models)
+- **ffmpeg-python** (0.2.0): FFmpeg wrapper for audio extraction (system ffmpeg required)
+- **pysubs2**: Subtitle file generation (SRT/VTT/ASS/SSA)
+- **transformers**: Helsinki-NLP translation models
 - **PyInstaller** (6.5.0+): Executable generation
+
+Dev dependencies: `pip install -r requirements-dev.txt` (adds pytest).
 
 ## Testing Structure
 
@@ -128,14 +129,14 @@ Tests organized under `tests/` mirroring `src/` structure. Uses pytest with fixt
 ## Business Rules & Constraints
 
 ### File Processing Rules
-- **Supported Formats**: MP4, AVI, MKV, MOV only
-- **File Size Limits**: Files >25MB automatically split into segments
-- **Language Processing**: Currently forced to English for consistency
+- **Supported Formats**: MP4, AVI, MKV, MOV, WEBM, MP3
+- **Duration Limits**: Audio >25 minutes automatically split into overlapping segments
+- **Language Processing**: 46 selectable languages + auto-detect (detects on the longest speech region)
 - **Queue Management**: Duplicate files automatically rejected (FIFO processing)
 
 ### Quality Assurance Rules
-- **Model Selection**: Large Whisper model for highest accuracy
-- **Audio Quality**: 44.1kHz sample rate, 4-byte depth
+- **Model Selection**: Large Whisper model (large-v3 via faster-whisper) for highest accuracy
+- **Audio Quality**: 16kHz mono WAV intermediate (Whisper-native); quiet audio (<−24 LUFS) automatically normalized
 - **Text Processing**: Automatic formatting with sentence detection
 - **Error Handling**: Failed files marked but don't stop batch
 
@@ -147,4 +148,4 @@ Tests organized under `tests/` mirroring `src/` structure. Uses pytest with fixt
 
 ## Current Development Status
 
-The project is on branch "clean-pyqt6-app" with a complete, functional UI. Recent work focused on modernizing from card-based to flat design, fixing transcription repetition issues, and forcing English-only transcription for consistency.
+See [`docs/project/CODEBASE_REVIEW_AND_ROADMAP.md`](docs/project/CODEBASE_REVIEW_AND_ROADMAP.md) for the findings inventory, execution roadmap, and progress log. As of 2026-07-05 **all 5 roadmap phases are complete**: audio quality pass + robust language detection, subtitle correctness fixes, dead-code cleanup sweep, UI robustness (real cancel/pause), and translation quality (per-segment, pt→en ROMANCE model). Outstanding: validate es/pt transcription with a real user sample.

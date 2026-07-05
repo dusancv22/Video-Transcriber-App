@@ -4,22 +4,7 @@ import logging
 import time
 from datetime import datetime
 from src.audio_processing.converter import AudioConverter
-
-# Try to import WhisperManager (standard whisper)
-try:
-    from src.transcription.whisper_manager import WhisperManager
-    STANDARD_WHISPER_AVAILABLE = True
-except ImportError:
-    WhisperManager = None
-    STANDARD_WHISPER_AVAILABLE = False
-
-# Try to import EnhancedWhisperManager (faster-whisper)
-try:
-    from src.transcription.enhanced_whisper_manager import EnhancedWhisperManager
-    ENHANCED_WHISPER_AVAILABLE = True
-except ImportError:
-    EnhancedWhisperManager = None
-    ENHANCED_WHISPER_AVAILABLE = False
+from src.transcription.enhanced_whisper_manager import EnhancedWhisperManager, TranscriptionCancelled
 from src.post_processing.text_processor import TextProcessor
 from src.post_processing.advanced_text_processor import AdvancedTextProcessor
 from src.post_processing.combiner import TextCombiner
@@ -45,83 +30,25 @@ class TranscriptionPipeline:
             use_vad_enhancement: Whether to use VAD for accurate subtitle timing
             use_faster_whisper: Whether to use faster-whisper (works on Windows with word timestamps)
         """
-        logger.info(f"Initializing TranscriptionPipeline with model_size={model_size}, VAD={use_vad_enhancement}, faster_whisper={use_faster_whisper}")
+        logger.info(f"Initializing TranscriptionPipeline with model_size={model_size}, VAD={use_vad_enhancement}")
         print("\nInitializing transcription pipeline...")
         self.converter = AudioConverter()
-        
-        # Choose which whisper implementation to use
-        if use_faster_whisper:
-            # Use faster-whisper for word-level timestamps (works on Windows!)
-            try:
-                logger.info("Initializing Enhanced Whisper Manager with faster-whisper")
-                # For faster-whisper, map model sizes appropriately
-                # If there's a .pt model path, ignore it for faster-whisper
-                if model_path and model_path.endswith('.pt'):
-                    logger.info("Ignoring .pt model file for faster-whisper, will download appropriate model")
-                    model_path = None  # Don't pass .pt files to faster-whisper
-                
-                # Map model sizes for faster-whisper
-                if model_size == "large":
-                    faster_model_size = "large-v3"  # Use latest large model
-                else:
-                    faster_model_size = model_size
-                    
-                self.whisper_manager = EnhancedWhisperManager(model_size=faster_model_size, model_path=model_path)
-                self.use_vad = use_vad_enhancement
-                self.use_faster_whisper = True
-                print("faster-whisper enabled for word-level timestamps (works on Windows!)")
-                logger.info("faster-whisper initialized successfully")
-            except Exception as e:
-                logger.warning(f"Failed to initialize faster-whisper: {e}", exc_info=True)
-                print(f"Warning: faster-whisper initialization failed ({e})")
-                
-                # Fall back to standard Whisper if available
-                if STANDARD_WHISPER_AVAILABLE:
-                    print("Falling back to standard Whisper")
-                    self.whisper_manager = WhisperManager(model_size=model_size, model_path=model_path)
-                    self.use_vad = False
-                    self.use_faster_whisper = False
-                else:
-                    raise RuntimeError(f"faster-whisper failed and standard Whisper not available: {e}")
-        elif use_vad_enhancement:
-            # Try to use enhanced manager with VAD (requires faster-whisper now)
-            try:
-                logger.info("Initializing Enhanced Whisper Manager with VAD")
-                # For VAD, we need to use faster-whisper
-                faster_model_size = "large-v2" if model_size == "large" else model_size
-                self.whisper_manager = EnhancedWhisperManager(model_size=faster_model_size, model_path=model_path)
-                self.use_vad = True
-                self.use_faster_whisper = True  # VAD requires faster-whisper
-                print("VAD-enhanced transcription enabled (using faster-whisper)")
-                logger.info("VAD enhancement initialized successfully")
-            except Exception as e:
-                logger.warning(f"Failed to initialize VAD enhancement: {e}", exc_info=True)
-                print(f"Warning: VAD initialization failed ({e})")
-                
-                # Fall back to standard Whisper if available
-                if STANDARD_WHISPER_AVAILABLE:
-                    print("Falling back to standard Whisper")
-                    self.whisper_manager = WhisperManager(model_size=model_size, model_path=model_path)
-                    self.use_vad = False
-                    self.use_faster_whisper = False
-                else:
-                    raise RuntimeError("Neither faster-whisper nor standard Whisper available")
-        else:
-            # Try standard Whisper first
-            if STANDARD_WHISPER_AVAILABLE:
-                logger.info("Using standard Whisper Manager")
-                self.whisper_manager = WhisperManager(model_size=model_size, model_path=model_path)
-                self.use_vad = False
-                self.use_faster_whisper = False
-            else:
-                # Fall back to faster-whisper without VAD
-                logger.info("Standard Whisper not available, using faster-whisper")
-                faster_model_size = "large-v2" if model_size == "large" else model_size
-                self.whisper_manager = EnhancedWhisperManager(model_size=faster_model_size, model_path=model_path)
-                self.use_vad = False
-                self.use_faster_whisper = True
-                print("Using faster-whisper (standard Whisper not installed)")
-        
+
+        # faster-whisper is the only transcription backend (openai-whisper
+        # support was removed - it was never installed and always fell through
+        # to faster-whisper anyway). The use_faster_whisper parameter is kept
+        # for backward compatibility with existing callers.
+        # Standard Whisper .pt model files are not usable with faster-whisper.
+        if model_path and model_path.endswith('.pt'):
+            logger.info("Ignoring .pt model file for faster-whisper, will download appropriate model")
+            model_path = None
+
+        faster_model_size = "large-v3" if model_size == "large" else model_size
+        self.whisper_manager = EnhancedWhisperManager(model_size=faster_model_size, model_path=model_path)
+        self.use_vad = use_vad_enhancement
+        self.use_faster_whisper = True
+        logger.info("faster-whisper initialized successfully")
+
         self.text_processor = TextProcessor()
         self.advanced_processor = AdvancedTextProcessor(remove_fillers=True, aggressive_cleaning=True)
         self.text_combiner = TextCombiner()
@@ -132,6 +59,23 @@ class TranscriptionPipeline:
         )
         self.use_advanced_processing = use_advanced_processing
         print(f"Pipeline initialized successfully (Advanced processing: {'Enabled' if use_advanced_processing else 'Disabled'})")
+
+    def request_cancel(self):
+        """Cancel the in-progress transcription (thread-safe, called from UI)."""
+        self.whisper_manager.cancel_event.set()
+        # Unblock a paused transcription so it can exit
+        self.whisper_manager.pause_event.clear()
+
+    def set_paused(self, paused: bool):
+        """Pause/resume the in-progress transcription (thread-safe, called from UI)."""
+        if paused:
+            self.whisper_manager.pause_event.set()
+        else:
+            self.whisper_manager.pause_event.clear()
+
+    def reset_control_flags(self):
+        """Clear pause/cancel state before a new processing run."""
+        self.whisper_manager.reset_control_events()
 
     @staticmethod
     def _get_chunk_timeline_offset(
@@ -246,10 +190,12 @@ class TranscriptionPipeline:
                     )
                 
                 try:
-                    print(f"DEBUG: Attempting to transcribe: {audio_file}")
-                    # Use transcribe_audio (no word timestamps) for text-only output
-                    result = self.whisper_manager.transcribe_audio(audio_file, language=language)
-                    print(f"DEBUG: Transcription successful for segment {idx}")
+                    # Use transcribe_audio (no word timestamps) for text-only output.
+                    # Reuse the language detected on the first chunk for all later
+                    # chunks so auto-detection can't flip language mid-transcript.
+                    result = self.whisper_manager.transcribe_audio(
+                        audio_file, language=language or detected_language
+                    )
                     full_text.append(result['text'])
                     if not detected_language:
                         detected_language = result['language']
@@ -335,6 +281,17 @@ class TranscriptionPipeline:
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             
+        except TranscriptionCancelled:
+            logger.info(f"Processing cancelled by user: {video_path.name}")
+            print(f"\nProcessing cancelled: {video_path.name}")
+            self.converter.cleanup_temp_files()
+            return {
+                'success': False,
+                'cancelled': True,
+                'error': 'Cancelled by user',
+                'video_name': video_path.name,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
         except Exception as e:
             error_msg = f"Error processing video: {e}"
             logger.exception(error_msg)
@@ -449,8 +406,12 @@ class TranscriptionPipeline:
                     )
                 
                 try:
-                    # Use the new method that returns timestamps
-                    result = self.whisper_manager.transcribe_audio_with_timestamps(audio_file, language=language)
+                    # Use the new method that returns timestamps. Reuse the language
+                    # detected on the first chunk for all later chunks so
+                    # auto-detection can't flip language mid-transcript.
+                    result = self.whisper_manager.transcribe_audio_with_timestamps(
+                        audio_file, language=language or detected_language
+                    )
                     
                     # Collect full text
                     full_text.append(result['text'])
@@ -546,29 +507,10 @@ class TranscriptionPipeline:
                 progress_callback(0.85, "Generating subtitle files")
             
             print("\nStep 4/5: Generating subtitle files...")
-            
-            # DEBUG: Check if we have word timestamps before subtitle generation
-            logger.info(f"Checking word timestamps before subtitle generation...")
-            word_count = 0
-            segments_with_words = 0
-            for idx, seg in enumerate(all_segments[:5]):  # Check first 5 segments
-                if 'words' in seg and seg['words']:
-                    segments_with_words += 1
-                    word_count += len(seg['words'])
-                    logger.info(f"  Segment {idx+1} has {len(seg['words'])} words: '{seg['text'][:50]}...'")
-                    # Log first and last word timing
-                    if seg['words']:
-                        first_word = seg['words'][0]
-                        last_word = seg['words'][-1]
-                        logger.info(f"    First word: '{first_word.get('word', '')}' at {first_word.get('start', 0):.2f}s")
-                        logger.info(f"    Last word: '{last_word.get('word', '')}' at {last_word.get('end', 0):.2f}s")
-                        logger.info(f"    Segment timing: {seg['start']:.2f}s - {seg['end']:.2f}s")
-                else:
-                    logger.warning(f"  Segment {idx+1} has NO WORDS: '{seg.get('text', '')[:50]}...'")
-            
-            logger.info(f"Word timestamp summary: {segments_with_words}/{min(5, len(all_segments))} segments have word timestamps")
-            logger.info(f"Total words found: {word_count}")
-            
+
+            segments_with_words = sum(1 for seg in all_segments if seg.get('words'))
+            logger.info(f"Word timestamps available in {segments_with_words}/{len(all_segments)} segments")
+
             subtitle_start = time.time()
             
             # Configure subtitle generator
@@ -585,10 +527,16 @@ class TranscriptionPipeline:
             subtitle_time = time.time() - subtitle_start
             print(f"Subtitle generation completed in {subtitle_time:.2f} seconds")
             
-            # List generated subtitle files
+            # List generated subtitle files, surfacing failures instead of
+            # silently omitting them
+            failed_formats = [f for f, p in subtitle_files.items() if not p]
             for format, file_path in subtitle_files.items():
                 if file_path:
                     print(f"  - {format.upper()}: {file_path}")
+                else:
+                    print(f"  - {format.upper()}: FAILED to generate (see log for details)")
+            if failed_formats:
+                logger.error(f"Subtitle generation failed for formats: {', '.join(failed_formats)}")
             
             # Step 5: Save transcript and cleanup
             if progress_callback:
@@ -637,6 +585,17 @@ class TranscriptionPipeline:
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             
+        except TranscriptionCancelled:
+            logger.info(f"Processing cancelled by user: {video_path.name}")
+            print(f"\nProcessing cancelled: {video_path.name}")
+            self.converter.cleanup_temp_files()
+            return {
+                'success': False,
+                'cancelled': True,
+                'error': 'Cancelled by user',
+                'video_name': video_path.name,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
         except Exception as e:
             error_msg = f"Error processing video with subtitles: {e}"
             logger.exception(error_msg)
@@ -657,33 +616,9 @@ class TranscriptionPipeline:
             'converter_available': True,
             'temp_dir': str(self.converter.output_dir),
             'subtitle_formats_available': list(SubtitleGenerator.SUPPORTED_FORMATS.keys()),
-            'subtitle_optimization': self.subtitle_generator.get_optimization_status(),
             'vad_enabled': self.use_vad,
             'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-        
+
         logger.info(f"Pipeline status: {status}")
         return status
-    
-    def configure_subtitle_sync(
-        self,
-        use_word_level: bool = True,
-        transition_delay: float = 0.15,
-        pause_threshold: float = 0.3,
-        min_pause_for_boundary: float = 0.2
-    ):
-        """Configure subtitle synchronization settings.
-        
-        Args:
-            use_word_level: Enable word-level timestamp optimization
-            transition_delay: Delay to add to transitions (seconds)
-            pause_threshold: Minimum pause to consider as boundary
-            min_pause_for_boundary: Minimum pause to create boundary
-        """
-        self.subtitle_generator.configure_word_optimization(
-            enabled=use_word_level,
-            transition_delay=transition_delay,
-            pause_threshold=pause_threshold,
-            min_pause_for_boundary=min_pause_for_boundary
-        )
-        logger.info(f"Subtitle sync configured: word_level={use_word_level}, delay={transition_delay}s")

@@ -52,7 +52,7 @@ class TestRepetitionFixIntegration:
         if self.temp_dir.exists():
             shutil.rmtree(self.temp_dir)
     
-    @patch('src.transcription.transcription_pipeline.WhisperManager')
+    @patch('src.transcription.transcription_pipeline.EnhancedWhisperManager')
     @patch('src.transcription.transcription_pipeline.AudioConverter')
     def test_end_to_end_repetition_prevention(self, mock_converter, mock_whisper_manager):
         """Test the complete pipeline prevents repetition from input to output."""
@@ -156,7 +156,7 @@ class TestRepetitionFixIntegration:
         # thank_you_count = result.lower().count('thank you')
         # assert thank_you_count <= 2, f"Should reduce repetitive 'thank you', got {thank_you_count}"
     
-    @patch('src.transcription.transcription_pipeline.WhisperManager')
+    @patch('src.transcription.transcription_pipeline.EnhancedWhisperManager')
     @patch('src.transcription.transcription_pipeline.AudioConverter')
     def test_large_file_segmentation_flow(self, mock_converter, mock_whisper_manager):
         """Test the complete flow for large files requiring segmentation."""
@@ -214,7 +214,7 @@ class TestRepetitionFixIntegration:
         test_video = self.temp_dir / "small_video.mp4"
         test_video.touch()
         
-        with patch('src.transcription.transcription_pipeline.WhisperManager') as mock_whisper:
+        with patch('src.transcription.transcription_pipeline.EnhancedWhisperManager') as mock_whisper:
             with patch('src.transcription.transcription_pipeline.AudioConverter') as mock_converter:
                 # Mock audio converter for small file (no splitting)
                 mock_converter_instance = Mock()

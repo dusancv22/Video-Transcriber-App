@@ -25,10 +25,9 @@ class TestAudioConverter:
         assert output_files == []  # Should return empty list on failure
 
     def test_split_metadata_tracks_original_timeline_window(self, monkeypatch):
-        audio_path = self.converter.output_dir / "large_audio.mp3"
+        audio_path = self.converter.output_dir / "large_audio.wav"
         audio_path.write_bytes(b"fake audio")
 
-        monkeypatch.setattr(self.converter, "check_file_size", lambda _: 50.0)
         monkeypatch.setattr(self.converter, "_get_audio_duration", lambda _: 90.0)
 
         def fake_extract(_input_path, output_path, _start_time, _end_time):
@@ -39,7 +38,7 @@ class TestAudioConverter:
 
         split_files = self.converter.split_audio_if_needed(
             str(audio_path),
-            max_size_mb=25,
+            max_duration_seconds=30.0,
             overlap_seconds=2.5
         )
         metadata = self.converter.get_last_split_metadata()
@@ -56,15 +55,14 @@ class TestAudioConverter:
         assert metadata[2]["content_end_time"] == 90
 
     def test_split_failure_keeps_original_and_clears_metadata(self, monkeypatch):
-        audio_path = self.converter.output_dir / "large_audio.mp3"
+        audio_path = self.converter.output_dir / "large_audio.wav"
         audio_path.write_bytes(b"fake audio")
         self.converter._last_split_metadata = [{"start_time": 99.0}]
 
-        monkeypatch.setattr(self.converter, "check_file_size", lambda _: 50.0)
         monkeypatch.setattr(self.converter, "_get_audio_duration", lambda _: 90.0)
 
         def fake_extract(_input_path, output_path, _start_time, _end_time):
-            if output_path.endswith("_part001.mp3"):
+            if output_path.endswith("_part1.wav"):
                 Path(output_path).touch()
                 return True
             return False
@@ -73,13 +71,13 @@ class TestAudioConverter:
 
         split_files = self.converter.split_audio_if_needed(
             str(audio_path),
-            max_size_mb=25,
+            max_duration_seconds=30.0,
             overlap_seconds=2.5
         )
 
         assert split_files == [str(audio_path)]
         assert audio_path.exists()
-        assert not (self.converter.output_dir / "large_audio_part001.mp3").exists()
+        assert not (self.converter.output_dir / "large_audio_part1.wav").exists()
         assert self.converter.get_last_split_metadata() == []
 
     def teardown_method(self):

@@ -80,8 +80,9 @@ class WordBasedSubtitleGenerator:
                     })
         
         if not all_words:
-            logger.warning("No words found in segments!")
-            return None
+            # Raise instead of returning None: callers expect a Path, and
+            # generate_multiple_formats() already catches and reports failures.
+            raise ValueError("No words or text found in segments - cannot generate subtitles")
         
         logger.info(f"Processing {len(all_words)} words with timestamps")
         
@@ -195,13 +196,18 @@ class WordBasedSubtitleGenerator:
                 'end': words[-1]['end']
             })
         
-        # Ensure minimum duration
-        for subtitle in subtitles:
+        # Ensure minimum duration without creating overlaps: an extended cue
+        # must never run past the next cue's start, and end must stay > start.
+        for i, subtitle in enumerate(subtitles):
             duration = subtitle['end'] - subtitle['start']
             if duration < self.min_subtitle_duration:
-                # Extend the end time slightly
-                subtitle['end'] = subtitle['start'] + self.min_subtitle_duration
-        
+                desired_end = subtitle['start'] + self.min_subtitle_duration
+                if i + 1 < len(subtitles):
+                    # Leave a small gap before the next cue
+                    desired_end = min(desired_end, subtitles[i + 1]['start'] - 0.05)
+                # Never shrink the cue below its actual (word-timed) end
+                subtitle['end'] = max(desired_end, subtitle['end'])
+
         return subtitles
     
     def _format_subtitle_text(self, text: str) -> str:
@@ -239,10 +245,12 @@ class WordBasedSubtitleGenerator:
         if best_split >= 0:
             line1 = ' '.join(words[:best_split + 1])
             line2 = ' '.join(words[best_split + 1:])
-            
+
             # Make sure neither line is too long
             if len(line1) <= self.max_chars_per_line and len(line2) <= self.max_chars_per_line:
-                return f"{line1}\n{line2}"
+                # pysubs2 expects \N as the line-break escape in SSAEvent.text;
+                # a raw newline gets mangled depending on the output format.
+                return f"{line1}\\N{line2}"
         
         # If we can't split nicely, just return the text
         # The subtitle display will handle wrapping

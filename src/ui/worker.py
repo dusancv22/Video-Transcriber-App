@@ -38,23 +38,15 @@ class TranscriptionWorker(QThread):
         self.save_to_source = save_to_source
         self.is_paused = False
         self._stop = False
-        self.subtitle_translator = None
-        
-        # Initialize translator if translation is enabled
-        if self.translation_settings.get('enabled'):
-            try:
-                from src.translation.subtitle_translator import SubtitleTranslator
-                self.subtitle_translator = SubtitleTranslator(
-                    source_lang=self.translation_settings.get('source_lang', 'auto'),
-                    target_lang=self.translation_settings.get('target_lang', 'en')
-                )
-                logger.info(f"Translation enabled: {self.translation_settings.get('source_lang')} -> {self.translation_settings.get('target_lang')}")
-                print(f"Translation enabled: {self.translation_settings.get('source_lang')} -> {self.translation_settings.get('target_lang')}")
-            except Exception as e:
-                logger.error(f"Failed to initialize translator: {e}")
-                print(f"Warning: Failed to initialize translator: {e}")
-                self.subtitle_translator = None
-        
+        # Translation models are loaded lazily inside run() (worker thread) -
+        # loading them here would block the GUI thread.
+        self.translation_enabled = bool(self.translation_settings.get('enabled'))
+        if self.translation_enabled:
+            logger.info(
+                f"Translation enabled: {self.translation_settings.get('source_lang')} "
+                f"-> {self.translation_settings.get('target_lang')}"
+            )
+
         logger.info(f"TranscriptionWorker initialized with language: {language_code or 'auto-detect'}")
         if self.subtitle_formats:
             logger.info(f"Subtitle generation enabled: {', '.join(self.subtitle_formats)}")
@@ -66,7 +58,10 @@ class TranscriptionWorker(QThread):
         """Main processing loop with enhanced progress reporting."""
         logger.info("Starting transcription worker process")
         print("\nStarting transcription process...")
-        
+
+        # Clear any pause/cancel state left over from a previous run
+        self.pipeline.reset_control_flags()
+
         try:
             while not self._stop:
                 if self.is_paused:
@@ -119,7 +114,14 @@ class TranscriptionWorker(QThread):
 
                     # Calculate processing time
                     processing_time = time.time() - start_time
-                    
+
+                    # User cancelled mid-file (stop requested): exit the loop
+                    # without reporting the file as failed.
+                    if result.get('cancelled'):
+                        logger.info("Processing cancelled by user - stopping worker")
+                        print("Processing cancelled by user")
+                        break
+
                     # Prepare completion info
                     completion_info = {
                         'file_path': str(next_item.file_path),
@@ -133,93 +135,17 @@ class TranscriptionWorker(QThread):
                     if result.get('subtitle_files'):
                         completion_info['subtitle_files'] = result['subtitle_files']
                         completion_info['subtitle_segments'] = result.get('subtitle_segments', 0)
-                        
+
                         # Translate subtitles if enabled
-                        if self.subtitle_translator and result.get('subtitle_files'):
-                            try:
-                                print(f"Translating subtitles to {self.translation_settings.get('target_lang')}...")
-                                print(f"DEBUG: subtitle_files = {result['subtitle_files']}")
-                                print(f"DEBUG: subtitle_translator exists = {self.subtitle_translator is not None}")
-                                translated_files = {}
-                                
-                                for format_type, subtitle_path in result['subtitle_files'].items():
-                                    print(f"DEBUG: Processing format_type={format_type}, subtitle_path={subtitle_path}")
-                                    # Convert Path object to string if needed
-                                    path_exists = False
-                                    if subtitle_path:
-                                        subtitle_path = str(subtitle_path) if not isinstance(subtitle_path, str) else subtitle_path
-                                        print(f"DEBUG: Checking subtitle file: {subtitle_path}")
-                                        try:
-                                            path_obj = Path(subtitle_path)
-                                            print(f"DEBUG: Created Path object: {path_obj}", flush=True)
-                                            import sys
-                                            sys.stdout.flush()
-                                            path_exists = path_obj.exists()
-                                            print(f"DEBUG: File exists = {path_exists}", flush=True)
-                                        except Exception as e:
-                                            print(f"DEBUG: Error checking if file exists: {e}")
-                                            import traceback
-                                            print(f"DEBUG: Path check traceback:\n{traceback.format_exc()}")
-                                            path_exists = False
-                                    else:
-                                        print(f"DEBUG: subtitle_path is None or empty")
-                                        continue
-                                    
-                                    print(f"DEBUG: About to check path_exists={path_exists} for translation", flush=True)
-                                    if path_exists:
-                                        try:
-                                            print(f"DEBUG: Starting translation of {format_type} subtitle...", flush=True)
-                                            
-                                            # Import and create a fresh translator instance in the thread
-                                            # This avoids issues with model loading in threads
-                                            from src.translation.subtitle_translator import SubtitleTranslator
-                                            
-                                            # Update progress to show translation is starting
-                                            self.progress_updated.emit(0.96, f"Translating {format_type.upper()} subtitles...")
-                                            
-                                            print(f"Creating translator instance...", flush=True)
-                                            fresh_translator = SubtitleTranslator(
-                                                source_lang=self.translation_settings.get('source_lang', 'auto'),
-                                                target_lang=self.translation_settings.get('target_lang', 'en')
-                                            )
-                                            
-                                            # Translate the subtitle file
-                                            print(f"Starting subtitle translation...", flush=True)
-                                            translated_path = fresh_translator.translate_subtitle_file(
-                                                subtitle_path=Path(subtitle_path),
-                                                preserve_original=True
-                                            )
-                                            print(f"Translation completed: {translated_path.name}", flush=True)
-                                            
-                                            translated_files[format_type] = str(translated_path)
-                                            print(f"  Translated {format_type}: {translated_path.name}")
-                                        except Exception as e:
-                                            import traceback
-                                            logger.error(f"Failed to translate {format_type} subtitle: {e}")
-                                            print(f"  Failed to translate {format_type}: {e}")
-                                            print(f"DEBUG: Full traceback:\n{traceback.format_exc()}")
-                                    else:
-                                        print(f"DEBUG: Skipping translation - file doesn't exist or path is None")
-                                
-                                if translated_files:
-                                    completion_info['translated_subtitle_files'] = translated_files
-                                    print(f"Translation complete: {len(translated_files)} subtitle(s) translated")
-                                    # Update progress to show translation is complete
-                                    self.progress_updated.emit(1.0, "Processing complete with translation")
-                                else:
-                                    print(f"DEBUG: No files were translated")
-                                    self.progress_updated.emit(1.0, "Processing complete (translation failed)")
-                                    
-                            except Exception as e:
-                                import traceback
-                                logger.error(f"Translation failed: {e}")
-                                print(f"Translation failed: {e}")
-                                print(f"DEBUG: Outer exception traceback:\n{traceback.format_exc()}")
-                                # Update progress to show translation failed
-                                self.progress_updated.emit(1.0, "Processing complete (translation error)")
+                        if self.translation_enabled:
+                            translated_files = self._translate_subtitle_files(result['subtitle_files'])
+                            if translated_files:
+                                completion_info['translated_subtitle_files'] = translated_files
+                                print(f"Translation complete: {len(translated_files)} subtitle(s) translated")
+                                self.progress_updated.emit(1.0, "Processing complete with translation")
+                            else:
+                                self.progress_updated.emit(1.0, "Processing complete (translation failed)")
                         else:
-                            print(f"DEBUG: Translation skipped - translator={self.subtitle_translator is not None}, has_files={result.get('subtitle_files') is not None}")
-                            # No translation needed, processing is complete
                             self.progress_updated.emit(1.0, "Processing complete with subtitles")
 
                     # Emit completion signal AFTER translation (if any) is done
@@ -239,13 +165,8 @@ class TranscriptionWorker(QThread):
                         logger.error(f"Failed to process {next_item.file_path.name}: {error_msg}")
 
                 except Exception as e:
-                    import traceback
-                    error_details = traceback.format_exc()
-                    logger.error(f"Error processing {next_item.file_path.name}: {e}")
-                    logger.error(f"Full traceback:\n{error_details}")
-                    print(f"ERROR: Failed to process {next_item.file_path.name}")
-                    print(f"ERROR: {e}")
-                    print(f"DEBUG: Full traceback:\n{error_details}")
+                    logger.error(f"Error processing {next_item.file_path.name}: {e}", exc_info=True)
+                    print(f"ERROR: Failed to process {next_item.file_path.name}: {e}")
                     self.error_occurred.emit(str(next_item.file_path), str(e))
 
         except Exception as e:
@@ -257,10 +178,65 @@ class TranscriptionWorker(QThread):
             # Clean up resources
             self._cleanup()
 
+    def _translate_subtitle_files(self, subtitle_files: dict) -> dict:
+        """Translate generated subtitle files (runs in the worker thread).
+
+        One translator instance is created per file batch and reused across
+        formats, so the translation model is loaded only once instead of once
+        per format.
+
+        Args:
+            subtitle_files: Mapping of format -> subtitle file path (or None)
+
+        Returns:
+            Mapping of format -> translated file path for successful translations
+        """
+        translated_files = {}
+        translator = None
+
+        try:
+            print(f"Translating subtitles to {self.translation_settings.get('target_lang')}...")
+
+            for format_type, subtitle_path in subtitle_files.items():
+                if not subtitle_path or not Path(subtitle_path).exists():
+                    logger.warning(f"Skipping translation for {format_type}: file missing")
+                    continue
+
+                try:
+                    self.progress_updated.emit(0.96, f"Translating {format_type.upper()} subtitles...")
+
+                    # Lazily create ONE translator for this file, reused across
+                    # formats (previously the model was reloaded per format)
+                    if translator is None:
+                        from src.translation.subtitle_translator import SubtitleTranslator
+                        translator = SubtitleTranslator(
+                            source_lang=self.translation_settings.get('source_lang', 'auto'),
+                            target_lang=self.translation_settings.get('target_lang', 'en')
+                        )
+
+                    translated_path = translator.translate_subtitle_file(
+                        subtitle_path=Path(subtitle_path),
+                        preserve_original=True
+                    )
+                    translated_files[format_type] = str(translated_path)
+                    print(f"  Translated {format_type}: {translated_path.name}")
+                except Exception as e:
+                    logger.error(f"Failed to translate {format_type} subtitle: {e}", exc_info=True)
+                    print(f"  Failed to translate {format_type}: {e}")
+        except Exception as e:
+            logger.error(f"Translation failed: {e}", exc_info=True)
+            print(f"Translation failed: {e}")
+        finally:
+            if translator is not None:
+                translator.cleanup()
+
+        return translated_files
+
     def pause(self):
-        """Pause processing."""
+        """Pause processing - takes effect mid-file (between transcription segments)."""
         if not self.is_paused:
             self.is_paused = True
+            self.pipeline.set_paused(True)
             logger.info("Worker paused")
             print("Pausing transcription...")
 
@@ -268,15 +244,22 @@ class TranscriptionWorker(QThread):
         """Resume processing."""
         if self.is_paused:
             self.is_paused = False
+            self.pipeline.set_paused(False)
             logger.info("Worker resumed")
             print("Resuming transcription...")
 
     def stop(self):
-        """Stop processing gracefully."""
+        """Stop processing gracefully.
+
+        Cancels the in-progress transcription (takes effect between
+        transcription segments, typically within a second or two) rather than
+        only stopping between files.
+        """
         logger.info("Stopping worker")
         print("Stopping transcription worker...")
         self._stop = True
         self.is_paused = False  # Ensure we're not stuck in pause
+        self.pipeline.request_cancel()
 
     def _cleanup(self):
         """Clean up resources before thread ends."""
@@ -288,16 +271,3 @@ class TranscriptionWorker(QThread):
         except Exception as e:
             logger.error(f"Error during worker cleanup: {e}")
             print(f"Error during worker cleanup: {e}")
-
-    def wait_with_timeout(self, timeout_ms: int = 5000) -> bool:
-        """
-        Wait for the thread to finish with timeout.
-        
-        Args:
-            timeout_ms: Maximum time to wait in milliseconds
-            
-        Returns:
-            bool: True if thread finished, False if timed out
-        """
-        print(f"Waiting for worker to finish (timeout: {timeout_ms}ms)...")
-        return self.wait(timeout_ms)

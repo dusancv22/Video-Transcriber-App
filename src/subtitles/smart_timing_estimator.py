@@ -108,39 +108,17 @@ class SmartTimingEstimator:
                 if i < len(segments) - 1:
                     next_segment = segments[i + 1]
                     next_start = next_segment['start']
-                    
+
                     if fixed_segment['end'] > next_start - 0.1:
-                        # Would overlap - adjust to leave small gap
-                        fixed_segment['end'] = next_start - 0.1
+                        # Would overlap - adjust to leave small gap, but never
+                        # let the clamp invert the cue (end <= start) when the
+                        # next segment starts almost immediately.
+                        fixed_segment['end'] = max(next_start - 0.1, start_time + 0.2)
                         logger.debug(f"  Adjusted to avoid overlap: {fixed_segment['end']:.2f}s")
             
             fixed_segments.append(fixed_segment)
         
         return fixed_segments
-    
-    def estimate_phrase_boundaries(self, text: str) -> List[int]:
-        """Estimate natural phrase boundaries in text.
-        
-        Args:
-            text: Text to analyze
-            
-        Returns:
-            List of word indices where natural breaks might occur
-        """
-        words = text.split()
-        boundaries = []
-        
-        # Look for punctuation and conjunctions that indicate phrase boundaries
-        for i, word in enumerate(words):
-            # Check for punctuation
-            if any(punct in word for punct in [',', ';', ':', '.']):
-                boundaries.append(i)
-            # Check for conjunctions that often start new phrases
-            elif word.lower() in ['y', 'o', 'pero', 'porque', 'cuando', 'donde', 'and', 'or', 'but']:
-                if i > 0:  # Don't split at the very beginning
-                    boundaries.append(i - 1)
-        
-        return boundaries
     
     def smart_segment_merge(self, segments: List[Dict]) -> List[Dict]:
         """Intelligently merge segments that are unnaturally split.
