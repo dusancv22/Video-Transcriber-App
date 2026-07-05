@@ -389,3 +389,10 @@ __pycache__/
 *.wmv
 *.flv
 *.webm
+
+# PyInstaller build outputs
+build/
+dist/
+
+# App runtime temp files (audio extraction workspace)
+temp/
