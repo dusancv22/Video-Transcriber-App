@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import logging
 import re
+from src.post_processing.text_processor import TextProcessor
 from src.subtitles.smart_timing_estimator import SmartTimingEstimator
 from src.subtitles.word_based_subtitle_generator import WordBasedSubtitleGenerator
 
@@ -81,7 +82,16 @@ class SubtitleGenerator:
             raise ValueError(f"Unsupported format: {format}. Supported: {list(self.SUPPORTED_FORMATS.keys())}")
         
         logger.info(f"Generating {format} subtitles with {len(segments)} segments")
-        
+
+        # Collapse hallucination loops in segment texts (walls of the same
+        # word/phrase from non-speech audio). Word-level runs are collapsed
+        # separately inside the word-based generator.
+        segments = [
+            dict(seg, text=TextProcessor.collapse_repetitions(seg['text']))
+            if seg.get('text') else seg
+            for seg in segments
+        ]
+
         # First, merge orphan segments (like single word "pueblo.")
         logger.info("Checking for orphan segments to merge...")
         segments = self.smart_estimator.smart_segment_merge(segments)
@@ -185,7 +195,7 @@ class SubtitleGenerator:
         output_file = output_path.with_suffix(f'.{format}')
         
         # Save in requested format
-        subs.save(str(output_file))
+        subs.save(str(output_file), encoding='utf-8-sig')
         logger.info(f"Saved subtitle file: {output_file}")
         
         return output_file

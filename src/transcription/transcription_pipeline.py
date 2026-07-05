@@ -230,13 +230,21 @@ class TranscriptionPipeline:
                 print("Single segment - no deduplication needed")
                 combined_text = full_text[0] if full_text else ""
             
-            # Apply text processing - basic first, then advanced if enabled
-            processed_text = self.text_processor.process_transcript(combined_text)
-            
-            if self.use_advanced_processing:
+            # Apply text processing - basic first, then advanced if enabled.
+            # The advanced processor's rules (filler words, abbreviation
+            # capitalization like ai->AI, eu->EU) are English-specific and
+            # corrupt other languages, so it only runs on English content.
+            effective_language = (language or detected_language or 'en').lower()
+            processed_text = self.text_processor.process_transcript(
+                combined_text, language=effective_language
+            )
+
+            if self.use_advanced_processing and effective_language.startswith('en'):
                 print("Applying advanced post-processing (filler removal, smart formatting)...")
                 processed_text = self.advanced_processor.process_transcript(processed_text)
-            
+            elif self.use_advanced_processing:
+                print(f"Skipping English-specific post-processing (language: {effective_language})")
+
             processing_time = time.time() - processing_start
             print(f"Post-processing completed in {processing_time:.2f} seconds")
             logger.info(f"Post-processing completed in {processing_time:.2f} seconds")
@@ -247,7 +255,7 @@ class TranscriptionPipeline:
                 
             print("\nStep 4/4: Saving transcript and cleaning up...")
             output_file = output_dir / f"{video_path.stem}_transcript.txt"
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, 'w', encoding='utf-8-sig') as f:
                 f.write(processed_text)
                 
             # Clean up temporary files
@@ -492,12 +500,19 @@ class TranscriptionPipeline:
                 print("Single segment - no deduplication needed")
                 combined_text = full_text[0] if full_text else ""
             
-            # Apply text processing
-            processed_text = self.text_processor.process_transcript(combined_text)
-            
-            if self.use_advanced_processing:
+            # Apply text processing. English-specific advanced rules
+            # (filler words, ai->AI/eu->EU capitalization) are skipped for
+            # other languages - they corrupt Portuguese/Spanish text.
+            effective_language = (language or detected_language or 'en').lower()
+            processed_text = self.text_processor.process_transcript(
+                combined_text, language=effective_language
+            )
+
+            if self.use_advanced_processing and effective_language.startswith('en'):
                 print("Applying advanced post-processing...")
                 processed_text = self.advanced_processor.process_transcript(processed_text)
+            elif self.use_advanced_processing:
+                print(f"Skipping English-specific post-processing (language: {effective_language})")
             
             processing_time = time.time() - processing_start
             print(f"Post-processing completed in {processing_time:.2f} seconds")
@@ -544,7 +559,7 @@ class TranscriptionPipeline:
             
             print("\nStep 5/5: Saving transcript and cleaning up...")
             output_file = output_dir / f"{video_path.stem}_transcript.txt"
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, 'w', encoding='utf-8-sig') as f:
                 f.write(processed_text)
             
             # Clean up temporary files

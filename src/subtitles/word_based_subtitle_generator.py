@@ -83,7 +83,11 @@ class WordBasedSubtitleGenerator:
             # Raise instead of returning None: callers expect a Path, and
             # generate_multiple_formats() already catches and reports failures.
             raise ValueError("No words or text found in segments - cannot generate subtitles")
-        
+
+        # Collapse hallucination loops (same word repeated dozens of times on
+        # non-speech audio) so they don't fill the subtitles with walls of text.
+        all_words = self._collapse_word_runs(all_words)
+
         logger.info(f"Processing {len(all_words)} words with timestamps")
         
         # Now group words into subtitles based on natural boundaries
@@ -108,17 +112,49 @@ class WordBasedSubtitleGenerator:
         output_file = output_path.with_suffix(f'.{format}')
         
         if format == 'srt':
-            subs.save(str(output_file), format_='srt')
+            subs.save(str(output_file), encoding='utf-8-sig', format_='srt')
         elif format == 'vtt':
-            subs.save(str(output_file), format_='vtt')
+            subs.save(str(output_file), encoding='utf-8-sig', format_='vtt')
         elif format == 'ass':
-            subs.save(str(output_file), format_='ass')
+            subs.save(str(output_file), encoding='utf-8-sig', format_='ass')
         else:
-            subs.save(str(output_file))
+            subs.save(str(output_file), encoding='utf-8-sig')
         
         logger.info(f"Generated {len(subtitles)} subtitles to {output_file}")
         return output_file
     
+    @staticmethod
+    def _collapse_word_runs(words: List[Dict], max_repeats: int = 3) -> List[Dict]:
+        """Drop words beyond max_repeats in a consecutive identical-word run.
+
+        Whisper emits long runs of the same word on non-speech audio; keeping
+        a few occurrences preserves meaning ("yes yes yes") while dropping the
+        hallucinated wall. Timing of kept words is untouched.
+        """
+        def norm(w: str) -> str:
+            return w.lower().strip('.,!?;:¡¿')
+
+        collapsed = []
+        run_norm = None
+        run_count = 0
+        dropped = 0
+
+        for word_data in words:
+            current = norm(word_data['word'])
+            if current and current == run_norm:
+                run_count += 1
+            else:
+                run_norm = current
+                run_count = 1
+            if run_count <= max_repeats:
+                collapsed.append(word_data)
+            else:
+                dropped += 1
+
+        if dropped:
+            logger.info(f"Collapsed word repetition runs: dropped {dropped} of {len(words)} words")
+        return collapsed
+
     def _group_words_into_subtitles(self, words: List[Dict]) -> List[Dict]:
         """Group words into subtitle segments based on timing and length.
         

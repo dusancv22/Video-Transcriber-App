@@ -201,12 +201,12 @@ class SubtitleTranslator:
             # Save in the same format as original
             original_ext = original_path.suffix.lower()
             if original_ext == '.vtt':
-                subs.save(str(output_path), format_='vtt')
+                subs.save(str(output_path), encoding='utf-8-sig', format_='vtt')
             elif original_ext in ('.ass', '.ssa'):
-                subs.save(str(output_path), format_='ass')
+                subs.save(str(output_path), encoding='utf-8-sig', format_='ass')
             else:
                 # SRT and anything unknown
-                subs.save(str(output_path), format_='srt')
+                subs.save(str(output_path), encoding='utf-8-sig', format_='srt')
 
             logger.info(f"Created translated subtitle: {output_path}")
 

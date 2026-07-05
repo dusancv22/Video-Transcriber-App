@@ -551,7 +551,10 @@ class EnhancedWhisperManager:
                 'temperature': 0.0,
                 'condition_on_previous_text': False,
                 'word_timestamps': True,  # Enable word-level timestamps
-                'vad_filter': False,  # Disable VAD to avoid onnxruntime issues
+                # Skip non-speech regions (music, moaning, noise): they are
+                # what makes Whisper hallucinate repetition loops.
+                'vad_filter': True,
+                'vad_parameters': {'min_silence_duration_ms': 500},
                 # Sample multiple 30s windows for auto-detection instead of
                 # trusting only the first one (robust against intros/music).
                 'language_detection_segments': 3,
@@ -650,8 +653,12 @@ class EnhancedWhisperManager:
                 'audio': str(audio_path),
                 'beam_size': 5,
                 'temperature': 0.0,
+                'condition_on_previous_text': False,  # Prevent context bleeding
                 'word_timestamps': False,  # No word timestamps for faster processing
-                'vad_filter': False,  # Disable VAD to avoid issues
+                # Skip non-speech regions (music, moaning, noise): they are
+                # what makes Whisper hallucinate repetition loops.
+                'vad_filter': True,
+                'vad_parameters': {'min_silence_duration_ms': 500},
                 # Sample multiple 30s windows for auto-detection instead of
                 # trusting only the first one (robust against intros/music).
                 'language_detection_segments': 3,
