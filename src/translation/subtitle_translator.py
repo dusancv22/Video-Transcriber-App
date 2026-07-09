@@ -10,6 +10,7 @@ import pysubs2
 import re
 
 from .engines.helsinki_translator import HelsinkiTranslator
+from src.post_processing.text_processor import TextProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -189,14 +190,35 @@ class SubtitleTranslator:
                 if 'id' in segment
             }
 
+            kept_events = []
+            dropped = 0
             for i, event in enumerate(subs.events):
                 segment = translated_by_id.get(i)
-                if segment is None:
-                    continue
-                # Use translated text if available, otherwise keep original
-                text = segment.get('translated_text') or segment.get('text', '')
-                # Convert line breaks back to subtitle escape format
-                event.text = text.replace('\n', '\\N')
+                if segment is not None:
+                    # Use translated text if available, otherwise keep original
+                    text = segment.get('translated_text') or segment.get('text', '')
+
+                    # The translation model can hallucinate repetition walls
+                    # ("whoa, whoa, whoa..." x40) from degenerate inputs. Drop
+                    # cues whose source OR translation is degenerate;
+                    # timestamps of the rest are absolute so no re-sync needed.
+                    duration = (event.end - event.start) / 1000.0
+                    source_text = segment.get('text', '')
+                    if (TextProcessor.is_degenerate_subtitle_text(text, duration=duration)
+                            or TextProcessor.is_degenerate_subtitle_text(source_text, duration=duration)):
+                        dropped += 1
+                        continue
+
+                    # Collapse any milder repetition that slipped through
+                    text = TextProcessor.collapse_repetitions(text)
+                    # Convert line breaks back to subtitle escape format
+                    event.text = text.replace('\n', '\\N')
+                kept_events.append(event)
+
+            if dropped:
+                logger.info(f"Dropped {dropped} hallucinated translated cues")
+                print(f"Removed {dropped} hallucinated subtitle cues during translation")
+            subs.events = kept_events
 
             # Save in the same format as original
             original_ext = original_path.suffix.lower()

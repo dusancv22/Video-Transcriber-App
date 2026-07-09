@@ -120,7 +120,15 @@ class HelsinkiTranslator:
         ).to(self.device)
 
         with torch.no_grad():
-            outputs = self.model.generate(**inputs, max_length=self.max_length)
+            outputs = self.model.generate(
+                **inputs,
+                max_length=self.max_length,
+                # MarianMT explodes degenerate inputs (interjections like
+                # "ai, ai, ai") into endless repetition loops ("whoa, whoa,
+                # whoa..." x40). Blocking repeated 4-grams stops the loops
+                # while leaving natural short repetitions untouched.
+                no_repeat_ngram_size=4,
+            )
 
         return self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
     

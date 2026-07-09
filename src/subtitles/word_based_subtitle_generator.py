@@ -92,7 +92,20 @@ class WordBasedSubtitleGenerator:
         
         # Now group words into subtitles based on natural boundaries
         subtitles = self._group_words_into_subtitles(all_words)
-        
+
+        # Drop hallucinated cues entirely (repetition walls, char-loop tokens).
+        # SRT timestamps are absolute, so removing cues needs no re-sync.
+        from src.post_processing.text_processor import TextProcessor
+        kept = [
+            s for s in subtitles
+            if not TextProcessor.is_degenerate_subtitle_text(
+                s['text'], duration=s['end'] - s['start']
+            )
+        ]
+        if len(kept) < len(subtitles):
+            logger.info(f"Dropped {len(subtitles) - len(kept)} hallucinated subtitle cues")
+        subtitles = kept
+
         # Create the subtitle file
         subs = pysubs2.SSAFile()
         

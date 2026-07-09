@@ -83,9 +83,19 @@ class SubtitleGenerator:
         
         logger.info(f"Generating {format} subtitles with {len(segments)} segments")
 
-        # Collapse hallucination loops in segment texts (walls of the same
-        # word/phrase from non-speech audio). Word-level runs are collapsed
-        # separately inside the word-based generator.
+        # Drop hallucinated cues entirely (repetition walls, char-loop tokens,
+        # impossible speech density), then collapse milder repetition in what
+        # remains. Word-level runs are collapsed separately inside the
+        # word-based generator.
+        original_count = len(segments)
+        segments = [
+            seg for seg in segments
+            if not (seg.get('text') and TextProcessor.is_degenerate_subtitle_text(
+                seg['text'], duration=seg.get('end', 0) - seg.get('start', 0)
+            ))
+        ]
+        if len(segments) < original_count:
+            logger.info(f"Dropped {original_count - len(segments)} hallucinated segments")
         segments = [
             dict(seg, text=TextProcessor.collapse_repetitions(seg['text']))
             if seg.get('text') else seg
